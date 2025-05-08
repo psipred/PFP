@@ -92,11 +92,11 @@ def generate_esm_embeddings(
 
 """
 python -c "
-from cluster.esm_residue import generate_esm_embeddings
+from cluster.esm_embedding.esm_residue import generate_esm_embeddings
 generate_esm_embeddings(
-  fasta_file='/home/zijizhou/scratch/testdata/test.fasta',
+  fasta_file='/SAN/bioinf/PFP/dataset/CAFA3/CAFA3_training_data/uniprot_sprot_exp.fasta',
   model_name='facebook/esm1b_t33_650M_UR50S',
-  output_dir='testdata/embedding',
+  output_dir='/SAN/bioinf/PFP/embeddings/esm',
   batch_size=16,
   max_length=1022,
   use_gpu=True

@@ -13,5 +13,5 @@
 # If there's a .source file needed, e.g. for Python 3.8, do something like:
 # source /share/apps/source_files/python-3.8.5.source
 
-python /home/yourusername/esm_residue.py /home/yourusername/my_fasta_file.fasta /home/yourusername/out_embeddings.csv
+python esm_residue.py /SAN/bioinf/PFP/dataset/CAFA3/CAFA3_training_data/uniprot_sprot_exp.fasta /SAN/bioinf/PFP/embeddings/esm
 

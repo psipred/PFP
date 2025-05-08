@@ -2,9 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-###############################################
-# Example helper functions (inline for demo)
-###############################################
 
 def cos_sim(x, y):
     """

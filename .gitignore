@@ -1,0 +1,31 @@
+# Ignore secret tokens and credentials
+etc/aau_token
+
+# Ignore log files
+*.log
+cluster/prot2text/prot2text.log
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+cluster/esm_embedding/__pycache__/
+
+# Ignore environment and data files
+.env
+.env/
+*.egg-info/
+*.csv
+*.tsv
+*.h5
+*.hdf5
+*.db
+*.sqlite
+*.bak
+*.tmp
+*.out
+
+# Ignore OS files
+.DS_Store
+Thumbs.db 
