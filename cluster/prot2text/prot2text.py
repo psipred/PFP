@@ -4,6 +4,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModel
+import argparse
 
 def generate_biomed_text_embeddings(
     json_file: str,
@@ -19,7 +20,7 @@ def generate_biomed_text_embeddings(
     embeddings, and saves the per-protein averaged embedding (across token dimension) as a .npy file.
 
     Args:
-        json_file (str): Path to the JSON file containing protein ID and text pairs.
+        json_file (str): Path to the     JSON file containing protein ID and text pairs.
         model_name (str): HuggingFace checkpoint name for BiomedBERT.
         output_dir (str): Directory to save .npy embedding files.
         batch_size (int): Number of text descriptions to process in a single batch.
@@ -91,11 +92,20 @@ def generate_biomed_text_embeddings(
 
 # Example command line usage:
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json_file", type=str, required=True)
+    parser.add_argument("--output_dir", type=str, required=True)
+    parser.add_argument("--model_name", type=str, default="microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract")
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--max_length", type=int, default=128)
+    parser.add_argument("--use_gpu", type=bool, default=True)
+    args = parser.parse_args()
+
     generate_biomed_text_embeddings(
-        json_file="testdata/generated_desc.json",
-        model_name="microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract",
-        output_dir="testdata/biomed_text_embeddingss",
-        batch_size=16,
-        max_length=128,
-        use_gpu=True
+        json_file=args.json_file,
+        model_name=args.model_name,
+        output_dir=args.output_dir,
+        batch_size=args.batch_size,
+        max_length=args.max_length,
+        use_gpu=args.use_gpu
     )

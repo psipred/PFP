@@ -90,13 +90,31 @@ def generate_esm_embeddings(
 
     print(f"Done! Generated embeddings are saved under '{output_dir}'.")
 
+
+# cafa 3
+# """
+# python -c "
+# from cluster.esm_embedding.esm_residue import generate_esm_embeddings
+# generate_esm_embeddings(
+#   fasta_file='/SAN/bioinf/PFP/dataset/CAFA3/CAFA3_training_data/uniprot_sprot_exp.fasta',
+#   model_name='facebook/esm1b_t33_650M_UR50S',
+#   output_dir='/SAN/bioinf/PFP/embeddings/esm',
+#   batch_size=16,
+#   max_length=1022,
+#   use_gpu=True
+# )
+# "
+# """
+
+# cafa 5_small
+
 """
 python -c "
 from cluster.esm_embedding.esm_residue import generate_esm_embeddings
 generate_esm_embeddings(
-  fasta_file='/SAN/bioinf/PFP/dataset/CAFA3/CAFA3_training_data/uniprot_sprot_exp.fasta',
+  fasta_file='/SAN/bioinf/PFP/dataset/CAFA5_small/filtered_train_seq.fasta',
   model_name='facebook/esm1b_t33_650M_UR50S',
-  output_dir='/SAN/bioinf/PFP/embeddings/esm',
+  output_dir='/SAN/bioinf/PFP/embeddings/cafa5_small/esm',
   batch_size=16,
   max_length=1022,
   use_gpu=True

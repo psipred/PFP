@@ -12,7 +12,7 @@ import math
 # Initialize paths and device
 model_path = '/SAN/bioinf/PFP/pretrained/esm2text_base'
 # fasta_path = '/SAN/bioinf/PFP/scratch/filtered_train_seq.fasta'
-fasta_path = '/SAN/bioinf/PFP/dataset/CAFA3/CAFA3_training_data/uniprot_sprot_exp.fasta'
+fasta_path = '/SAN/bioinf/PFP/dataset/CAFA5_small/filtered_train_seq.fasta'
 output_json_path = '/SAN/bioinf/PFP/embeddings/prot2text/cafa/generated_desc.json'
 
 
@@ -107,7 +107,7 @@ for i, record in enumerate(SeqIO.parse(fasta_path, 'fasta')):
     processed_records += 1
 
     if processed_records % save_interval == 0:
-        with open(f"/SAN/bioinf/PFP/embeddings/prot2text/cafa/temp/partial_output_{sge_task_id}.json", 'w') as f:
+        with open(f"/SAN/bioinf/PFP/embeddings/cafa5_small/prot2text/temp/partial_output_{sge_task_id}.json", 'w') as f:
             json.dump(local_results, f, indent=2)
         print(f"Partial save: {processed_records} records processed (Task {sge_task_id}).")
 
