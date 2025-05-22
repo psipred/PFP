@@ -10,7 +10,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-cluster/esm_embedding/__pycache__/
+cluster_embed/esm_embedding/__pycache__/
 
 # Ignore environment and data files
 .env
@@ -31,8 +31,7 @@ Thumbs.db
 
 # Ignore project data, configuration, and output artifacts
 Data/
-Download/
-configs/
+Download
 models/
 outputs/
 runs/
