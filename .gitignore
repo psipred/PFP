@@ -28,3 +28,14 @@ cluster/esm_embedding/__pycache__/
 # Ignore OS files
 .DS_Store
 Thumbs.db 
+
+# Ignore project data, configuration, and output artifacts
+Data/
+Download/
+configs/
+models/
+outputs/
+runs/
+settings.py
+utils/go-basic.obo
+utils/*.pkl
