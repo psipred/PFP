@@ -1,7 +1,6 @@
 import torch
 import logging
 import os
-import torch.nn as nn
 import torch.optim as optim
 # import shutil
 import random
@@ -11,12 +10,11 @@ from tqdm import tqdm
 from Network.model_utils import InterLabelLoss , FmaxMetric
 import logging
 import os
-import torch.nn.functional as F
+import torch.nn.functional as F 
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import RGCNConv, global_mean_pool
-from ProteinGraphRGCN import EncoderRGCN, EncoderRGCN_GO
-from AP_align_fuse import AP_align_fuse
+# from ProteinGraphRGCN import EncoderRGCN, EncoderRGCN_GO
+from .AP_align_fuse import AP_align_fuse
 # SimpleDNN(
 #   (model): Sequential(
 #     (0): Linear(in_features=7680, out_features=512, bias=True)
@@ -190,6 +188,8 @@ class SimpleTrainer:
 
 
         self.tau = 0.8
+        # Weight applied to contrastive_loss when the model returns it
+        self.contrastive_lambda = model_params.get('contrastive_lambda', 5e-3)
         self.model_params = model_params
 
         if model_params['embedding_type'] == 'GCRN': 
@@ -209,12 +209,9 @@ class SimpleTrainer:
             # print(data.edge_index.shape)
             # print(graph_emb.shape)
         elif model_params['embedding_type'] == 'mmstie':
-
-
             self.model = AP_align_fuse(self.tau, hidden_size=256)
 
-
-            old_weights = torch.load("testdata/best_model_fuse_0.8322829131652661.pt", map_location=torch.device('cuda'))
+            old_weights = torch.load("/SAN/bioinf/PFP/pretrained/best_model_fuse_0.8322829131652661.pt", map_location=torch.device('cuda'))
 
             # load_state_dict(..., strict=False) means it will ignore shape mismatches
             # or layers not present in the new model.
@@ -222,30 +219,56 @@ class SimpleTrainer:
             old_weights.pop("classifier_token.weight", None)
             old_weights.pop("classifier_token.bias", None)
             missing_keys, unexpected_keys = self.model.load_state_dict(old_weights, strict=False)
-            
-            
             print("Missing keys in loaded state:", missing_keys)
-            # print("Unexpected keys in loaded state:", unexpected_keys)
-
-
-
 
             # 1) Freeze all parameters in the model
-            for _, param in self.model.named_parameters():
-                param.requires_grad = False
-
+            for p in self.model.parameters():
+                p.requires_grad = False
             # 2) Unfreeze just the classifier (or any layer you still want to train)
-            for _, param in self.model.classifier_token.named_parameters():
-                param.requires_grad = True
+            for p in self.model.classifier_token.parameters():
+                p.requires_grad = True        # or progressively unfreeze more blocks later
 
-            # exit()
+            # ------------------------------------------------------------------
+            # Replace all BatchNorm1d layers inside the classifier head with
+            # LayerNorm to avoid zero‑variance collapse when batch_size == 1
+            # ------------------------------------------------------------------
+            def _replace_bn(module):
+                for name, child in module.named_children():
+                    if isinstance(child, nn.BatchNorm1d):
+                        ln = nn.LayerNorm(child.num_features, elementwise_affine=True)
+                        setattr(module, name, ln)
+                    else:
+                        _replace_bn(child)
+            _replace_bn(self.model.classifier_token)
 
+            # ---------------------------------------------------------
+            # Also un‑freeze a few higher‑level modules so the head
+            # receives features it can actually learn from.
+            # ---------------------------------------------------------
+            trainable_module_names = [
+                "project",                              # 1280 → 768 linear
+                "fc2_res", 
+                "bn2_res",                   # residual MLP just before the head
+                "token_suffix_transformer_res.layers.1",
+                "share_transformer.layers.3",
+                "fusion_cross"
+            ]
+            self.modules_to_train = [self.model.classifier_token]  # will be used in train()
+            #
+            for name, module in self.model.named_modules():
+                if any(name.startswith(tn) for tn in trainable_module_names):
+                    for p in module.parameters():
+                        p.requires_grad = True
+                    self.modules_to_train.append(module)
+
+            # Keep the frozen backbone deterministic; only the head learns
+            self.model.eval()
+            # self.model.classifier_token.train()  # replaced by selective train() in train()
 
         elif model_params['embedding_type'] == 'attention': 
             self.model = SimpleDNNWithAttention(1024, 7680, 1536, 1024, model_params['hidden_sizes'], model_params['output_size'], go_term_list)
 
         else:
-
             self.model = SimpleDNN(model_params['input_size'], model_params['hidden_sizes'], model_params['output_size'], go_term_list)
 
         # exit()
@@ -261,16 +284,21 @@ class SimpleTrainer:
         # elif model_params['loss_function'] == 'inter':
             # self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate,  weight_decay=1e-5)
         
+        # self.model.eval()                               # backbone in eval
+        # self.model.classifier_token.train()             # head in train
+        # self.optimizer = optim.AdamW(self.model.parameters(), model_params['lr'])  # Use AdamW optimizer
+        trainables = [p for p in self.model.parameters() if p.requires_grad]
+        print(f"Total parameters: {sum(p.numel() for p in self.model.parameters()):,}")
+        print(f"Trainable parameters: {sum(p.numel() for p in trainables):,}")
+        self.optimizer = optim.AdamW(trainables, lr=model_params['lr'])
         
-        self.optimizer = optim.AdamW(self.model.parameters(), model_params['lr'])  # Use AdamW optimizer
 
-        
         # Training parameters
         self.num_epochs = model_params['num_epochs']
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # self.device = torch.device("cpu")
 
-        # Move model to the specified device
+        # Move model to the specified device    
         self.model = self.model.to(self.device)
 
         # exit(self.model.device)
@@ -326,7 +354,14 @@ class SimpleTrainer:
 
         for epoch in range(self.num_epochs):
             self.logger.log_message(f"{'-'*20} {epoch + 1} {'-'*20}", level="info")
-            self.model.train()  # Set to training mode
+            # keep backbone in eval‑mode, train only the classifier head
+            self.model.eval()                          # keep majority frozen / deterministic
+            if hasattr(self, "modules_to_train"):      # set only the chosen modules to train()
+                for mod in self.modules_to_train:
+                    mod.train()
+            else:                                      # fallback (other embedding types)
+                if hasattr(self.model, "classifier_token"):
+                    self.model.classifier_token.train()
             running_loss = 0.0
 
             # for batch_idx, (names, inputs, y_true) in tqdm(enumerate(train_loader), total=len(train_loader), ascii=' >='):
@@ -335,6 +370,7 @@ class SimpleTrainer:
 
 
             for batch_idx, batch in tqdm(enumerate(train_loader), total=len(train_loader), ascii=' >='):
+                contrastive_loss = None   # reset every batch
 
 
                 if False:
@@ -369,12 +405,8 @@ class SimpleTrainer:
                     # print(data2.size())
                     # exit(data.size())
                     outputs = self.model(data2, data)
-
-
                     logits = outputs["token_logits"]
                     contrastive_loss = outputs["contrastive_loss"]
-
-                    print("contrastive_loss", str(contrastive_loss))
                     outputs = logits
 
                     
@@ -383,7 +415,7 @@ class SimpleTrainer:
                     
 
 
-
+                    
                     # # below is origin
                     names, seq,  graph, labels = batch
 
@@ -430,15 +462,14 @@ class SimpleTrainer:
                 
                 if self.model_params['loss_function'] == 'cross_entropy':
                     loss = self.criterion(outputs, labels)
-
-
                 elif self.model_params['loss_function'] == 'inter':
                     # exit(outputs.size())
-
                     loss = self.loss_fn(outputs, labels, weight_tensor = self.weight_matrix, aspect="BPO", print_loss=False)
 
+                if contrastive_loss is not None:
+                    loss = loss + self.contrastive_lambda * contrastive_loss
 
-                # Backward and optimize                                     
+                # Backward and optimize
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
@@ -509,6 +540,7 @@ class SimpleTrainer:
 
                 
             for batch_idx, batch in tqdm(enumerate(val_loader), total=len(val_loader), ascii=' >='):
+                contrastive_loss = None   # reset every batch
 
 
 
@@ -535,22 +567,11 @@ class SimpleTrainer:
                     data, data2, data3, labels = data.to(self.device), data2.to(self.device), data3.to(self.device), labels.to(self.device)
                     outputs = self.model(data, data2, data3)
                 elif len(batch) == 4:
-                    # names, data, data2, labels = batch
-                    # data, data2, labels = data.to(self.device), data2.to(self.device), labels.to(self.device)
-                    # outputs = self.model(data, data2)
-                    # Process the batch with four elements
-
                     names, data, data2, labels = batch
                     data, data2, labels = data.to(self.device), data2.to(self.device), labels.to(self.device)
-                    # print(data2.size())
-                    # exit(data.size())
                     outputs = self.model(data2, data)
-
-
                     logits = outputs["token_logits"]
                     contrastive_loss = outputs["contrastive_loss"]
-
-                    print("contrastive_loss", str(contrastive_loss))
                     outputs = logits
 
                 elif len(batch) == 3:
@@ -574,6 +595,8 @@ class SimpleTrainer:
                     loss = self.criterion(outputs, labels)
                 elif self.model_params['loss_function'] == 'inter':
                     loss = self.loss_fn(outputs, labels, weight_tensor = self.weight_matrix, aspect="BPO", print_loss=False)
+                if contrastive_loss is not None:
+                    loss = loss + self.contrastive_lambda * contrastive_loss
 
                 # Forward pass
                 # outputs = self.model(data, data2)
@@ -608,8 +631,8 @@ class SimpleTrainer:
                 # exit()
 
         # Concatenate all tensors from the list into one tensor along the first dimension
-        y_preds = torch.cat(y_preds, dim=0).cuda()
-        y_trues = torch.cat(y_trues, dim=0).cuda()
+        y_preds = torch.cat(y_preds, dim=0).to(self.device)
+        y_trues = torch.cat(y_trues, dim=0).to(self.device)
         mean_f1_score, mean_precision, mean_recall, cut_off, f150 = self.metrics.compute_protein_centric_fm(y_preds, y_trues, margin=0.01, weight_tensor=self.weight_matrix)
         mean_f1_score = mean_f1_score.item()
         mean_precision = mean_precision.item()

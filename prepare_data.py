@@ -5,7 +5,7 @@ import numpy as np
 from Bio import SeqIO
 import scipy.sparse as ssp
 from sklearn.model_selection import KFold
-
+import urllib.request
 from iterstrat.ml_stratifiers import MultilabelStratifiedKFold
 import shutil
 
@@ -14,9 +14,8 @@ from settings import settings_dict as settings
 
 docstring = """
 example usage:
-    python prepare_data.py -train Data/cafa5_raw_data/train_terms.tsv -train_seqs Data/cafa5_raw_data/train_seq.fasta -d Data --make_db --ia
+    python prepare_data.py -train /SAN/bioinf/PFP/dataset/CAFA5_small/filtered_train_terms.tsv -train_seqs /SAN/bioinf/PFP/dataset/CAFA5_small/filtered_train_seq.fasta -d Data --make_db --ia
     python prepare_data.py -train /Users/zjzhou/Downloads/InterLabelGO/testdata/test.tsv -train_seqs /Users/zjzhou/Downloads/InterLabelGO/testdata/test.fasta -d Data --make_db --ia
-
 
     python prepare_data.py -train testdata/test.tsv -train_seqs testdata/test.fasta -d Data --make_db --ia
     grep '^>' testdata/test.fasta | sed 's/^>//' | cut -d' ' -f1 > ids.txt && grep -F -f ids.txt Data/cafa5_raw_data/train_terms.tsv > testdata/test.tsv
@@ -512,7 +511,7 @@ if __name__ == "__main__":
     print("start main")
     main(train_terms_tsv, train_seqs_fasta, Data_dir, make_alignment_db, min_count_dict, seed, stratifi, test_terms_tsv, test_seqs_fasta)
     print("finish main!!!!!!!!!!!!!!!!!!!!!!!")
-    args.ia = False
+
     if args.ia:
         
         ia_file = settings['ia_file']
@@ -525,9 +524,14 @@ if __name__ == "__main__":
         # exit()
 
         # exit(obo_file)
-        obo_file = 'go-basic.obo' 
+        url = 'http://purl.obolibrary.org/obo/go/go-basic.obo'
         if not os.path.exists(obo_file):
-            raise Exception(f'obo file not found at {obo_file}, to calculate ia, please download the obo file from http://purl.obolibrary.org/obo/go/go-basic.obo and put it in the utils directory')
+            print(f"Downloading GO OBO file from {url} to {obo_file} ...")
+            os.makedirs(os.path.dirname(obo_file), exist_ok=True)
+            urllib.request.urlretrieve(url, obo_file)
+            print("Download complete.")
+        if not os.path.exists(obo_file):
+            raise Exception(f'obo file not found at {obo_file} after download; please check the URL or directory permissions')
         cmd = f"python {ia_script} --annot {train_terms_tsv} --graph {obo_file} --prop -o {ia_file}"
         print('Creating IA.txt...')
         subprocess.run(cmd, shell=True, check=True)

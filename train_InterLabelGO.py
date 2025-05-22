@@ -6,10 +6,11 @@ import shutil
 from torch.utils.data import DataLoader
 import pickle, argparse
 import scipy.sparse as ssp
+
 import torch.nn as nn
 import torch.optim as optim
 
-from dnn import SimpleDNN, SimpleTrainer, SimpleDNNWithAttention
+from Network.dnn import SimpleDNN, SimpleTrainer, SimpleDNNWithAttention
 
 from Network.model import InterlabelGODataset, InterLabelResNet
 from Network.model_utils import InterLabelLoss, EarlyStop, FmaxMetric, Trainer
@@ -27,7 +28,7 @@ training_config = {
     'dropout':0.3,
     'epochs':5,
     'batch_size':512,
-    'learning_rate':0.001,
+    'learning_rate':0.02,
     'num_models': 5,
     'combine_feature': True,
     'loss': 'cross_entropy',
@@ -61,24 +62,24 @@ training_config = {
 #     "num_epochs": 50,           # Number of epochs
 #     "lr" : 0.001,               # Learning rate
 # }
-# Attention Fusion
-model_params = {
-    # ['BPO', 'CCO', 'MFO']
-    # [1318, '480', '452']
+# # Attention Fusion
+# model_params = {
+#     # ['BPO', 'CCO', 'MFO']
+#     # [1318, '480', '452']
 
-    "task": 'BPO',
-    "output_size": 1318,
-    "embedding_type": 'mmstie',
-    "loss_function": 'cross_entropy',
-    # "loss_function": 'inter', 
-    "input_size": 2048,         # Size of input features
-    'combine_feature': True,
-    "hidden_sizes": [800],  # Hidden layer sizes
-    'repr_layers': [36],
-    "learning_rate": 0.01,     # Learning rate
-    "num_epochs": 5,           # Number of epochs
-    "lr" : 0.01,               # Learning rate
-}
+#     "task": 'BPO',
+#     "output_size": 1318,
+#     "embedding_type": 'mmstie',
+#     "loss_function": 'cross_entropy',
+#     # "loss_function": 'inter', 
+#     "input_size": 2048,         # Size of input features
+#     'combine_feature': True,
+#     "hidden_sizes": [800],  # Hidden layer sizes
+#     'repr_layers': [36],
+#     "learning_rate": 0.01,     # Learning rate
+#     "num_epochs": 15,           # Number of epochs
+#     "lr" : 0.02,               # Learning rate
+# }
 
 
 
@@ -106,26 +107,26 @@ model_params = {
 # }
 
 
-# # ESM embedding only 
-# model_params = {
-#     # ['BPO', 'CCO', 'MFO']
-#     # [1318, '452', '481']
-#     "task": 'CCO',
-#     "embedding_type": 'ESM',
-#     # "loss_function": 'cross_entropy',
-#     "loss_function": 'inter',
-#     "input_size": 7680,         # Size of input features
-#     'combine_feature': False,
-#     # input_size = 2560     # Size of input features
-#     "hidden_sizes": [800],  # Hidden layer sizes
-#     "output_size": 452,        # Number of classes or output size
-#     # "output_size": 1306,
-#     'repr_layers': [36],
-#     # "output_size": 481,
-#     "learning_rate": 0.001,     # Learning rate
-#     "num_epochs": 10,           # Number of epochs
-#     "lr" : 0.001,               # Learning rate
-# }
+# ESM embedding only 
+model_params = {
+    # ['BPO', 'CCO', 'MFO']
+    # [1302, '452', '481']
+    "task": 'BPO',
+    "embedding_type": 'ESM',
+    # "loss_function": 'cross_entropy',
+    "loss_function": 'inter',
+    "input_size": 1024,         # Size of input features
+    'combine_feature': False,
+    # input_size = 2560     # Size of input features
+    "hidden_sizes": [800],  # Hidden layer sizes
+    "output_size": 1302,        # Number of classes or output size
+    # "output_size": 1306,
+    'repr_layers': [36],
+    # "output_size": 481,
+    "learning_rate": 0.001,     # Learning rate
+    "num_epochs": 10,           # Number of epochs
+    "lr" : 0.001,               # Learning rate
+}
 
 # # three embedding concatenate 
 # model_params = {
@@ -341,7 +342,8 @@ def main(
                 combine_feature = model_params["combine_feature"],
 
             )  
-            training_config['batch_size'] = 8
+            training_config['batch_size'] = 16
+            training_config['pred_batch_size'] = 16
 
             train_loader = DataLoader(train_dataset, batch_size = training_config['batch_size'], shuffle=True)
             val_loader = DataLoader(val_dataset, batch_size = training_config['pred_batch_size'], shuffle=False)
