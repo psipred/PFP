@@ -75,7 +75,7 @@ class AP_align_fuse(nn.Module):
         # Intermediate classifier layer before the prediction head
         self.fc2_res = nn.Linear(768 + self.embedding_dim_seq, hidden_size)
         self.bn2_res = nn.BatchNorm1d(hidden_size)
-
+        
         # Prediction head using BaseGOClassifier on the pooled sequence features
         self.classifier = BaseGOClassifier(
             input_dim=hidden_size,
@@ -113,16 +113,23 @@ class AP_align_fuse(nn.Module):
         # 6) Concatenate suffix-transformed sequence and fused textual info
         fusion_cat = torch.cat([seq_embeddings_suffix, fusion_out], dim=2)  # [B, seq_len, 1280+768]
         
-        # 7) Process with a token-level transformer
-        seq_pred = self.token_suffix_transformer_res(fusion_cat)  # [B, seq_len, 1280+768]
+        # # 7) Process with a token-level transformer
+        # seq_pred = self.token_suffix_transformer_res(fusion_cat)  # [B, seq_len, 1280+768]
         
-        # 8) Apply the intermediate classification layer and reshape for batch normalization.
-        seq_pred = torch.relu(
-            self.bn2_res(self.fc2_res(seq_pred).permute(0,2,1)).permute(0,2,1)
-        )
+        # # 8) Apply the intermediate classification layer and reshape for batch normalization.
+        # seq_pred = torch.relu(
+        #     self.bn2_res(self.fc2_res(seq_pred).permute(0,2,1)).permute(0,2,1)
+        # )
         
         # 9) Pool across the token dimension to get a protein-level representation
-        seq_pooled = seq_pred.mean(dim=1)  # [B, hidden_size]
+        # seq_pooled = seq_pred.mean(dim=1)  # [B, hidden_size]
+
+
+
+        # 7) Compute protein‑level embedding by mean‑pooling the fused representation
+        seq_pooled = fusion_cat.mean(dim=1)  # [B, self.fusion_dim]
+  
+
 
         # 10) Final prediction using the BaseGOClassifier head
         logits = self.classifier(seq_pooled)  # [B, num_labels]
