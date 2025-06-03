@@ -24,5 +24,3 @@ This project provides a pipeline for protein function prediction using deep lear
 - `Network/`, `models/`: Model code
 - `utils/`: Utilities
 
----
-For details, see comments in each script or ask the project maintainer.
