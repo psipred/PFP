@@ -321,4 +321,5 @@ if __name__ == "__main__":
         output_dir="/SAN/bioinf/PFP/embeddings/structure",
         embedding_dim=512,
         use_alphafold=True
+        
     )
