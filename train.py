@@ -8,7 +8,15 @@ from Network.model_utils import EarlyStop      # keep early-stop helper
 from pathlib import Path
 from tqdm import tqdm
 from Network.base_go_classifier import BaseGOClassifier
- 
+
+# Optional: write metrics.csv and training_curve.png
+try:
+    import pandas as pd
+    import matplotlib.pyplot as plt
+except ImportError:      # allow training to run without these libs
+    pd = None
+    plt = None
+
 def setup_logger(log_dir: str):
     logger = logging.getLogger("trainer")
     logger.setLevel(logging.DEBUG)
@@ -61,7 +69,8 @@ def main(cfg: DictConfig):
         batch_size   = cfg.dataset.batch_size,
         shuffle      = True,
         num_workers  = cfg.dataset.num_workers,
-        drop_last    = True          # avoid 1‑sample batch → BatchNorm error
+        drop_last    = True,          # avoid 1‑sample batch → BatchNorm error
+
     )
     valid_loader = DataLoader(
         valid_ds, batch_size=cfg.dataset.batch_size,
@@ -96,13 +105,15 @@ def main(cfg: DictConfig):
         # current ontology's output_dim (e.g. 453 for CCO, 673 for MFO).
         # ------------------------------------------------------------------
 
-        hidden_size   = model.fc2_res.out_features  # 256
+        hidden_size   = 2048
+        # model.fc2_res.out_features  # 256
+        
         new_out_dim   = int(cfg.model.output_dim)
         model.classifier = BaseGOClassifier(
             input_dim=hidden_size,
             output_dim=new_out_dim,
             projection_dim=hidden_size,
-            hidden_dim=hidden_size
+            hidden_dim=512
         ).to(device)
 
         # Make sure only the classifier (and any selectively unfrozen modules)
@@ -111,12 +122,12 @@ def main(cfg: DictConfig):
             p.requires_grad = False
         for p in model.classifier.parameters():
             p.requires_grad = True
-        # for p in model.fc2_res.parameters():
-        #     p.requires_grad = True
-        # for p in model.bn2_res.parameters():
-        #     p.requires_grad = True
-        # for p in model.fusion_cross.parameters():
-        #     p.requires_grad = True
+        for p in model.fc2_res.parameters():
+            p.requires_grad = True
+        for p in model.bn2_res.parameters():
+            p.requires_grad = True
+        for p in model.fusion_cross.parameters():
+            p.requires_grad = True
 
 
     else:
@@ -150,6 +161,8 @@ def main(cfg: DictConfig):
         min_epochs = cfg.optim.get("min_epochs", 5),
         monitor    = cfg.optim.get("monitor", "loss")
     )
+    # collect metrics for CSV/plot
+    metrics_history = []
                 
     # train loop ----------------
     for epoch in range(1, cfg.optim.epochs + 1):
@@ -222,11 +235,45 @@ def main(cfg: DictConfig):
                   f"mAP {metrics_report['AP']:.4f} | "
                   f"Fmax {metrics_report['Fmax']:.4f}")
 
+            # save for later CSV/plot
+            metrics_history.append({
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "mAP": metrics_report["AP"],
+                "Fmax": metrics_report["Fmax"],
+            })
+
             # early stopping: pass val_loss, current F-max, and model
             early_stop(val_loss, metrics_report["Fmax"], model)
 
             if early_stop.stop():                                 # query the flag
                 break
+
+    # ── Persist metrics to disk ─────────────────────────────────────────────
+    if pd is not None and plt is not None and metrics_history:
+        csv_path = os.path.join(cfg.log.out_dir, "metrics.csv")
+        df = pd.DataFrame(metrics_history)
+        df.to_csv(csv_path, index=False)
+
+        # Plot common curves
+        plt.figure()
+        plt.plot(df["epoch"], df["train_loss"], label="Train loss")
+        plt.plot(df["epoch"], df["val_loss"], label="Val loss")
+        if "Fmax" in df.columns:
+            plt.plot(df["epoch"], df["Fmax"], label="F‑max")
+        if "mAP" in df.columns:
+            plt.plot(df["epoch"], df["mAP"], label="mAP")
+        plt.xlabel("Epoch")
+        plt.legend()
+        plt.title(f"{cfg.dataset.embedding_type.upper()} training curves")
+        plt.tight_layout()
+        fig_path = os.path.join(cfg.log.out_dir, "training_curve.png")
+        plt.savefig(fig_path)
+        plt.close()
+        logger.info(f"Training curves saved: {fig_path}")
+    elif pd is None or plt is None:
+        logger.warning("pandas/matplotlib not installed; skipping CSV/plot export.")
 
     # restore best model weights (by chosen monitor) and save
     if early_stop.has_backup_model():
