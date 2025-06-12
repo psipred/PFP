@@ -261,11 +261,12 @@ class StructureGraphDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         actual_idx = self.valid_indices[idx]
         name = self.names[actual_idx]
-        
+
         # Check cache
         if self.cache_graphs and name in self.graph_cache:
             graph_data = self.graph_cache[name]
         else:
+
             # Process PDB
             pdb_path = self.pdb_processor.pdb_dir / f"AF-{name}-F1-model_v4.pdb"
             seq, ca_coords, _ = self.pdb_processor.extract_sequence_and_coords(pdb_path)
@@ -290,6 +291,7 @@ class StructureGraphDataset(torch.utils.data.Dataset):
             
             if self.cache_graphs:
                 self.graph_cache[name] = graph_data
+
                 
         # Add label if available
         if self.labels is not None:

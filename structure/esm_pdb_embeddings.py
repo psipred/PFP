@@ -101,12 +101,12 @@ def generate_esm_embeddings_for_pdbs(
         batch_seqs = [item[1] for item in batch]
         
         try:
-            # Tokenize
+            # Tokenize - set max_length to accommodate sequence + special tokens
             encoded = tokenizer(
                 batch_seqs,
                 padding="longest",
                 truncation=True,
-                max_length=1024,  # ESM models typically support up to 1024
+                max_length=1026,  # 1024 residues + CLS + SEP tokens
                 return_tensors="pt",
                 add_special_tokens=True
             )
@@ -140,12 +140,12 @@ def generate_esm_embeddings_for_pdbs(
                 try:
                     logger.info(f"Retrying {seq_id} individually...")
                     
-                    # Process single sequence
+                    # Process single sequence - accommodate full sequence + special tokens
                     single_encoded = tokenizer(
                         seq_str,
                         padding=False,
                         truncation=True,
-                        max_length=1024,
+                        max_length=1026,  # 1024 residues + CLS + SEP tokens
                         return_tensors="pt",
                         add_special_tokens=True
                     )
@@ -160,11 +160,14 @@ def generate_esm_embeddings_for_pdbs(
                         )
                         single_embedding = single_outputs[0]
                     
-                    # Save individual result
+                    # Save individual result - FIXED
                     mask = single_attention_mask[0].bool()
                     emb = single_embedding[0].cpu()
-                    last_idx = mask.nonzero()[-1].item()
-                    residue_embeddings = emb[1:last_idx]
+                    
+                    # Find actual sequence tokens (excluding CLS and SEP)
+                    # CLS is at position 0, SEP is at the last non-padded position
+                    seq_len = len(seq_str)
+                    residue_embeddings = emb[1:1+seq_len]  # Skip CLS, take exactly seq_len tokens
                     
                     if mean_pool:
                         saved_emb = residue_embeddings.mean(dim=0).numpy().astype(np.float32)
@@ -177,7 +180,7 @@ def generate_esm_embeddings_for_pdbs(
                         {"name": seq_id, "embedding": saved_emb},
                         allow_pickle=True
                     )
-                    logger.info(f"Successfully processed {seq_id}")
+                    logger.info(f"Successfully processed {seq_id}: seq_len={seq_len}, emb_shape={saved_emb.shape}")
                     
                 except Exception as e2:
                     logger.error(f"Failed to process {seq_id} even individually: {e2}")
@@ -185,14 +188,13 @@ def generate_esm_embeddings_for_pdbs(
             
             continue
         
-        # Save each sequence
-        for idx, protein_id in enumerate(batch_ids):
-            mask = attention_mask[idx].bool()
+        # Save each sequence - FIXED
+        for idx, (protein_id, original_seq) in enumerate(zip(batch_ids, batch_seqs)):
             emb = embeddings[idx].cpu()
             
-            # Find last token position and remove special tokens
-            last_idx = mask.nonzero()[-1].item()
-            residue_embeddings = emb[1:last_idx]  # Remove CLS and SEP/PAD
+            # Get actual sequence length and extract corresponding embeddings
+            seq_len = len(original_seq)
+            residue_embeddings = emb[1:1+seq_len]  # Skip CLS, take exactly seq_len tokens
             
             if mean_pool:
                 saved_emb = residue_embeddings.mean(dim=0).numpy().astype(np.float32)
@@ -206,6 +208,8 @@ def generate_esm_embeddings_for_pdbs(
                 {"name": protein_id, "embedding": saved_emb},
                 allow_pickle=True
             )
+            
+            logger.debug(f"Processed {protein_id}: seq_len={seq_len}, emb_shape={saved_emb.shape}")
     
     logger.info(f"Successfully generated embeddings for {len(sequences_to_process)} sequences")
     logger.info(f"Embeddings saved to: {output_dir}")
@@ -232,7 +236,7 @@ def validate_embeddings(
     logger.info("Validating embeddings...")
     
     # Get a few samples
-    pdb_files = list(Path(pdb_dir).glob("*.pdb"))[:10]
+    pdb_files = list(Path(pdb_dir).glob("*.pdb"))[:50]
     
     mismatches = []
     for pdb_file in pdb_files:
