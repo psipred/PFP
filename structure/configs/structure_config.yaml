@@ -1,0 +1,83 @@
+# Configuration for structure-based GO prediction using EGNN
+# Place this file in: configs/structure_config.yaml
+
+# Random seed for reproducibility
+seed: 42
+
+# Data paths
+data:
+  pdb_dir: "/SAN/bioinf/PFP/embeddings/structure/pdb_files"
+  esm_embedding_dir: "/SAN/bioinf/PFP/embeddings/cafa5_small/esm_af"
+
+data_dir: "/SAN/bioinf/PFP/PFP/Data/network_training_data"
+fold: 0
+# Dataset configuration
+dataset:
+  train_names: "${data_dir}/${aspect}/${aspect}_train_names_fold${fold}.npy"
+  train_labels: "${data_dir}/${aspect}/${aspect}_train_labels_fold${fold}.npz"
+  valid_names: "${data_dir}/${aspect}/${aspect}_valid_names_fold${fold}.npy"
+  valid_labels: "${data_dir}/${aspect}/${aspect}_valid_labels_fold${fold}.npz"
+  batch_size: 16
+  num_workers: 0
+
+# Graph construction parameters
+graph:
+  type: "knn"  # Options: "knn" or "radius"
+  k: 10  # Number of neighbors for k-NN graph
+  radius: 10.0  # Cutoff distance in Angstroms for radius graph
+  use_esm_features: false  # Use ESM embeddings as node features
+  cache_graphs: true  # Cache constructed graphs in memory
+
+# Model architecture
+model:
+  # EGNN parameters
+  hidden_dim: 256
+  embedding_dim: 512  # Output dimension of EGNN
+  n_layers: 4  # Number of EGNN layers
+  dropout: 0.1
+  update_pos: false  # Don't update positions for proteins
+  pool: "mean"  # Global pooling: "mean" or "max"
+  
+  # Classifier parameters
+  output_dim: 453  # Number of GO terms (aspect-specific)
+  classifier_hidden_dim: 512
+  classifier_layers: 2
+  projection_dim: 512
+  activation: "relu"
+  
+  # Optional fusion with text embeddings
+  use_mmstie_fusion: false
+  mmstie_pretrained: "/SAN/bioinf/PFP/pretrained/best_model_fuse_0.8322829131652661.pt"
+
+# Training parameters
+optim:
+  epochs: 100
+  lr: 0.0001
+  weight_decay: 0.00001
+  patience: 15  # Early stopping patience
+  min_epochs: 10
+  monitor: "loss"  # "loss" or "fmax"
+  clip_grad: 1.0  # Gradient clipping
+  use_scheduler: true
+  scheduler_patience: 5
+
+# Logging configuration
+log:
+  out_dir: "/SAN/bioinf/PFP/PFP/structure/experiments/${aspect}_${graph.type}_k${graph.k}"
+  eval_every: 1  # Evaluate every N epochs
+  save_every: 10  # Save checkpoint every N epochs
+
+# Aspect-specific settings (override with --aspect=bpo/cco/mfo)
+
+aspect: "CCO"
+# Override output dimensions per aspect, 
+# but didn't actually overwrite 
+BPO:
+  model:
+    output_dim: 1302
+CCO:
+  model:
+    output_dim: 453
+MFO:
+  model:
+    output_dim: 483
