@@ -86,4 +86,4 @@ if __name__ == "__main__":
     download_structures_from_fasta(
         fasta_file="/SAN/bioinf/PFP/dataset/CAFA5_small/filtered_train_seq.fasta",
         output_dir="/SAN/bioinf/PFP/embeddings/structure/pdb_files"
-    )
+    )   

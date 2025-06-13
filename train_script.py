@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 train_script.py
 
@@ -21,13 +22,14 @@ import os
 import sys
 
 # Experiment configuration
-aspects = ["mfo" , "cco", "bpo"]
-folds   = range(5)
-lrs     = [0.01, 0.005, 0.001]
-embs    = ["esm_mean",  "esm", "text"]
-# embs    = ["mmsite"]
+aspects = ["bpo"]
+folds   = range(1)
+# lrs     = [0.00001, 0.00005, 0.0001, 0.0005, 0.0005]
+lrs     = [0.0001, 0.00001]
+# embs    = ["esm_mean",  "esm", "text"]
+embs    = ["structure"]
 # "mmsite", 
-# Per‑ontology label count  
+# Per-ontology label count  
 dim_by_aspect = {"bpo": 1302, "cco": 453, "mfo": 483}
 
 # Summary CSV path
@@ -77,4 +79,3 @@ for aspect, fold, lr, emb in itertools.product(aspects, folds, lrs, embs):
         sys.exit(result.returncode)
 
 print("All experiments completed. Summary in", csv_path)
-# Pv;5QUGE>ud6

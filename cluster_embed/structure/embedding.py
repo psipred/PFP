@@ -1,51 +1,220 @@
 import os
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch_geometric.data import Data
-from torch_geometric.nn import GCNConv, global_mean_pool, global_max_pool
-from torch_geometric.utils import to_dense_adj, dense_to_sparse
-import networkx as nx
-from node2vec import Node2Vec
+import pandas as pd
 from Bio.PDB import PDBParser
-from tqdm import tqdm
-from typing import Optional, Tuple, List
+from gensim.models import Word2Vec
+from gensim.models.word2vec import LineSentence
+import networkx as nx
+import random
 import warnings
+from tqdm import tqdm
+from typing import Optional, List
+import tempfile
+
 warnings.filterwarnings('ignore')
 
-class ProteinStructureProcessor:
-    """
-    Processes PDB files to create protein contact map graphs and extract structural embeddings
-    following the hierarchical GCN-Pool architecture.
-    """
+
+class Graph:
+    """Node2vec graph walker implementation"""
     
-    def __init__(self, contact_threshold: float = 10.0, node2vec_dim: int = 128):
-        """
-        Initialize the protein structure processor.
+    def __init__(self, nx_G, is_directed=False, p=0.8, q=1.2):
+        self.G = nx_G
+        self.is_directed = is_directed
+        self.p = p
+        self.q = q
+
+    def node2vec_walk(self, walk_length, start_node):
+        """Simulate a random walk starting from start node."""
+        G = self.G
+        alias_nodes = self.alias_nodes
+        alias_edges = self.alias_edges
+
+        walk = [start_node]
+
+        while len(walk) < walk_length:
+            cur = walk[-1]
+            cur_nbrs = sorted(G.neighbors(cur))
+            if len(cur_nbrs) > 0:
+                if len(walk) == 1:
+                    walk.append(cur_nbrs[self.alias_draw(alias_nodes[cur][0], alias_nodes[cur][1])])
+                else:
+                    prev = walk[-2]
+                    next_node = cur_nbrs[self.alias_draw(alias_edges[(prev, cur)][0], alias_edges[(prev, cur)][1])]
+                    walk.append(next_node)
+            else:
+                break
+
+        return walk
+
+    def simulate_walks(self, num_walks, walk_length):
+        """Repeatedly simulate random walks from each node."""
+        G = self.G
+        walks = []
+        nodes = list(G.nodes())
+        for walk_iter in range(num_walks):
+            random.shuffle(nodes)
+            for node in nodes:
+                walks.append(self.node2vec_walk(walk_length=walk_length, start_node=node))
+        return walks
+
+    def get_alias_edge(self, src, dst):
+        """Get the alias edge setup lists for a given edge."""
+        G = self.G
+        p = self.p
+        q = self.q
+
+        unnormalized_probs = []
+        for dst_nbr in sorted(G.neighbors(dst)):
+            if dst_nbr == src:
+                unnormalized_probs.append(1.0/p)
+            elif G.has_edge(dst_nbr, src):
+                unnormalized_probs.append(1.0)
+            else:
+                unnormalized_probs.append(1.0/q)
+        norm_const = sum(unnormalized_probs)
+        normalized_probs = [float(u_prob)/norm_const for u_prob in unnormalized_probs]
+
+        return self.alias_setup(normalized_probs)
+    
+    def preprocess_transition_probs(self):
+        """Preprocessing of transition probabilities for guiding the random walks."""
+        G = self.G
+        is_directed = self.is_directed
+
+        alias_nodes = {}
+        for node in G.nodes():
+            unnormalized_probs = [1.0 for nbr in range(len(list(G.neighbors(node))))]
+            norm_const = sum(unnormalized_probs)
+            normalized_probs = [float(u_prob)/norm_const for u_prob in unnormalized_probs]
+            alias_nodes[node] = self.alias_setup(normalized_probs)
+
+        alias_edges = {}
+
+        if is_directed:
+            for edge in G.edges():
+                alias_edges[edge] = self.get_alias_edge(edge[0], edge[1])
+        else:
+            for edge in G.edges():
+                alias_edges[edge] = self.get_alias_edge(edge[0], edge[1])
+                alias_edges[(edge[1], edge[0])] = self.get_alias_edge(edge[1], edge[0])
+
+        self.alias_nodes = alias_nodes
+        self.alias_edges = alias_edges
+
+    @staticmethod
+    def alias_setup(probs):
+        """Compute utility lists for non-uniform sampling from discrete distributions."""
+        K = len(probs)
+        q = np.zeros(K)
+        J = np.zeros(K, dtype=np.int32)
+
+        smaller = []
+        larger = []
+        for kk, prob in enumerate(probs):
+            q[kk] = K*prob
+            if q[kk] < 1.0:
+                smaller.append(kk)
+            else:
+                larger.append(kk)
+
+        while len(smaller) > 0 and len(larger) > 0:
+            small = smaller.pop()
+            large = larger.pop()
+
+            J[small] = large
+            q[large] = q[large] + q[small] - 1.0
+            if q[large] < 1.0:
+                smaller.append(large)
+            else:
+                larger.append(large)
+        return J, q
+
+    @staticmethod
+    def alias_draw(J, q):
+        """Draw sample from a non-uniform discrete distribution using alias sampling."""
+        K = len(J)
+        kk = int(np.floor(np.random.rand()*K))
+        if np.random.rand() < q[kk]:
+            return kk
+        else:
+            return J[kk]
+
+
+def seq2onehot(seq):
+    """Create 26-dim one-hot encoding for amino acid sequence"""
+    chars = ['-', 'D', 'G', 'U', 'L', 'N', 'T', 'K', 'H', 'Y', 'W', 'C', 'P',
+             'V', 'S', 'O', 'I', 'E', 'F', 'X', 'Q', 'A', 'B', 'Z', 'R', 'M']
+    vocab_size = len(chars)
+    vocab_embed = dict(zip(chars, range(vocab_size)))
+
+    # Convert vocab to one-hot
+    vocab_one_hot = np.zeros((vocab_size, vocab_size), int)
+    for _, val in vocab_embed.items():
+        vocab_one_hot[val, val] = 1
+
+    embed_x = [vocab_embed.get(v, vocab_embed['X']) for v in seq]  # Use 'X' for unknown
+    seqs_x = np.array([vocab_one_hot[j, :] for j in embed_x])
+
+    return seqs_x
+
+
+def learn_node2vec_embeddings(walks, nums_node, embedding_dim=30):
+    """Learn embeddings by optimizing the Skipgram objective using SGD."""
+    # Create temporary file for walks
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
+        walk_file = f.name
+        for walk in walks:
+            line = ' '.join(map(str, walk)) + '\n'
+            f.write(line)
+    
+    try:
+        walks_iter = LineSentence(walk_file)
+        model = Word2Vec(walks_iter, vector_size=embedding_dim, window=5, min_count=0, 
+                        hs=1, sg=1, workers=1, epochs=3)  # workers=1 for stability
         
-        Args:
-            contact_threshold: Distance threshold for creating edges (Angstroms)
-            node2vec_dim: Dimension of node2vec structural embeddings
-        """
+        vectors = []
+        for i in range(nums_node):
+            if str(i) in model.wv.key_to_index:
+                vectors.append(list(model.wv[str(i)]))
+            else:
+                vectors.append(list(np.zeros(embedding_dim)))
+        
+        return np.array(vectors)
+    
+    finally:
+        # Clean up temporary file
+        if os.path.exists(walk_file):
+            os.remove(walk_file)
+
+
+def add_sequence_features(node2vec_vectors, sequence_onehot):
+    """Combine node2vec vectors with sequence one-hot encoding"""
+    if node2vec_vectors.shape[0] != sequence_onehot.shape[0]:
+        if node2vec_vectors.shape[0] < sequence_onehot.shape[0]:
+            sequence_onehot = sequence_onehot[:node2vec_vectors.shape[0], :]
+        else:
+            # Pad sequence one-hot with zeros
+            padding = np.zeros((node2vec_vectors.shape[0] - sequence_onehot.shape[0], sequence_onehot.shape[1]))
+            sequence_onehot = np.vstack((sequence_onehot, padding))
+
+    combined_features = np.hstack((node2vec_vectors, sequence_onehot))
+    return combined_features
+
+
+class ProteinStructureProcessor:
+    """Enhanced protein structure processor following the reference architecture"""
+    
+    def __init__(self, contact_threshold: float = 10.0):
         self.contact_threshold = contact_threshold
-        self.node2vec_dim = node2vec_dim
         self.aa_to_idx = {
             'A': 0, 'R': 1, 'N': 2, 'D': 3, 'C': 4, 'Q': 5, 'E': 6, 'G': 7,
             'H': 8, 'I': 9, 'L': 10, 'K': 11, 'M': 12, 'F': 13, 'P': 14,
             'S': 15, 'T': 16, 'W': 17, 'Y': 18, 'V': 19
         }
         
-    def parse_pdb_structure(self, pdb_file: str) -> Optional[Tuple[List[str], np.ndarray]]:
-        """
-        Parse PDB file to extract amino acid sequence and Ca coordinates.
-        
-        Args:
-            pdb_file: Path to PDB file
-            
-        Returns:
-            Tuple of (amino_acid_sequence, ca_coordinates) or None if failed
-        """
+    def parse_pdb_structure(self, pdb_file: str) -> Optional[tuple]:
+        """Parse PDB file to extract amino acid sequence and Ca coordinates."""
         try:
             parser = PDBParser(QUIET=True)
             structure = parser.get_structure('protein', pdb_file)
@@ -60,18 +229,15 @@ class ProteinStructureProcessor:
             for residue in chain:
                 if residue.id[0] == ' ':  # Standard amino acid
                     try:
-                        # Get Ca atom coordinates
                         ca_atom = residue['CA']
                         ca_coords.append(ca_atom.get_coord())
                         
-                        # Get amino acid type
                         aa_name = residue.get_resname()
-                        # Convert 3-letter to 1-letter code
                         aa_1letter = self._three_to_one_letter(aa_name)
                         amino_acids.append(aa_1letter)
                         
                     except KeyError:
-                        continue  # Skip if no CA atom
+                        continue
             
             if len(amino_acids) == 0:
                 print(f"Warning: No valid amino acids found in {pdb_file}")
@@ -92,22 +258,13 @@ class ProteinStructureProcessor:
             'LEU': 'L', 'LYS': 'K', 'MET': 'M', 'PHE': 'F', 'PRO': 'P',
             'SER': 'S', 'THR': 'T', 'TRP': 'W', 'TYR': 'Y', 'VAL': 'V'
         }
-        return conversion.get(three_letter, 'X')  # X for unknown
+        return conversion.get(three_letter, 'X')
     
-    def create_contact_map_graph(self, ca_coords: np.ndarray) -> np.ndarray:
-        """
-        Create contact map adjacency matrix from Ca coordinates.
-        
-        Args:
-            ca_coords: Array of Ca coordinates (n_residues, 3)
-            
-        Returns:
-            Adjacency matrix (n_residues, n_residues)
-        """
+    def create_contact_map(self, ca_coords: np.ndarray) -> np.ndarray:
+        """Create contact map distance matrix from Ca coordinates."""
         n_residues = len(ca_coords)
         print(f"  → Creating contact map for {n_residues} residues")
         
-        # Calculate pairwise distances
         distances = np.zeros((n_residues, n_residues))
         for i in range(n_residues):
             for j in range(i+1, n_residues):
@@ -115,239 +272,33 @@ class ProteinStructureProcessor:
                 distances[i, j] = dist
                 distances[j, i] = dist
         
-        # Create adjacency matrix based on distance threshold
-        adjacency = (distances <= self.contact_threshold).astype(float)
-        
-        # Remove self-loops initially (will be added later with normalization)
-        np.fill_diagonal(adjacency, 0)
-        
-        n_edges = np.sum(adjacency) // 2  # Divide by 2 since symmetric
-        print(f"  → Contact map created: {n_edges} edges with threshold {self.contact_threshold}Å")
-        
-        return adjacency
+        return distances
     
-    def learn_structural_embeddings(self, adjacency: np.ndarray) -> np.ndarray:
-        """
-        Learn structural embeddings using node2vec.
+    def distance_to_contact_graph(self, distances: np.ndarray) -> nx.Graph:
+        """Convert distance matrix to contact graph based on threshold."""
+        n_residues = distances.shape[0]
+        G = nx.Graph()
         
-        Args:
-            adjacency: Adjacency matrix
-            
-        Returns:
-            Structural embeddings (n_nodes, embedding_dim)
-        """
-        print(f"  → Learning structural embeddings with node2vec (dim={self.node2vec_dim})")
+        # Add all nodes
+        G.add_nodes_from(range(n_residues))
         
-        # Convert adjacency matrix to networkx graph
-        G = nx.from_numpy_array(adjacency)
+        # Add edges based on contact threshold
+        edges = []
+        for i in range(n_residues):
+            for j in range(i+1, n_residues):
+                if distances[i, j] <= self.contact_threshold and i != j:
+                    edges.append((i, j))
         
-        if len(G.nodes()) == 0:
-            print("    Warning: Empty graph, returning zero embeddings")
-            return np.zeros((adjacency.shape[0], self.node2vec_dim))
+        G.add_edges_from(edges)
         
-        # Initialize node2vec
-        node2vec = Node2Vec(
-            G, 
-            dimensions=self.node2vec_dim,
-            walk_length=30,
-            num_walks=200,
-            workers=1,  # Use single worker to avoid multiprocessing issues
-            p=1,        # Return parameter
-            q=1         # In-out parameter
-        )
-        
-        # Learn embeddings
-        model = node2vec.fit(window=10, min_count=1, batch_words=4)
-        
-        # Extract embeddings for all nodes
-        embeddings = np.zeros((len(G.nodes()), self.node2vec_dim))
-        for i, node in enumerate(sorted(G.nodes())):
-            embeddings[i] = model.wv[str(node)]
-        
-        print(f"  → Structural embeddings learned: shape {embeddings.shape}")
-        return embeddings
-    
-    def create_initial_features(self, amino_acids: List[str], structural_embeddings: np.ndarray) -> np.ndarray:
-        """
-        Create initial feature vectors by combining one-hot encoded amino acids with structural embeddings.
-        
-        Args:
-            amino_acids: List of amino acid single-letter codes
-            structural_embeddings: Structural embeddings from node2vec
-            
-        Returns:
-            Initial feature matrix H^(0) (n_residues, 20 + embedding_dim)
-        """
-        n_residues = len(amino_acids)
-        print(f"  → Creating initial features for {n_residues} amino acids")
-        
-        # Create one-hot encoding for amino acids
-        one_hot = np.zeros((n_residues, 20))
-        for i, aa in enumerate(amino_acids):
-            if aa in self.aa_to_idx:
-                one_hot[i, self.aa_to_idx[aa]] = 1
-            # Unknown amino acids remain as zero vectors
-        
-        # Concatenate one-hot with structural embeddings
-        initial_features = np.concatenate([one_hot, structural_embeddings], axis=1)
-        
-        print(f"  → Initial features created: shape {initial_features.shape}")
-        print(f"    - One-hot encoding: {one_hot.shape}")
-        print(f"    - Structural embeddings: {structural_embeddings.shape}")
-        
-        return initial_features
-
-
-class GraphConvPoolModule(nn.Module):
-    """
-    Single Graph Convolution + Pooling module for hierarchical feature extraction.
-    """
-    
-    def __init__(self, input_dim: int, hidden_dim: int, pooling_ratio: float = 0.5):
-        """
-        Initialize GCN-Pool module.
-        
-        Args:
-            input_dim: Input feature dimension
-            hidden_dim: Hidden feature dimension
-            pooling_ratio: Fraction of nodes to keep after pooling
-        """
-        super().__init__()
-        self.pooling_ratio = pooling_ratio
-        
-        # Graph convolution layer
-        self.conv = GCNConv(input_dim, hidden_dim)
-        
-        # Attention layer for pooling
-        self.attention = GCNConv(hidden_dim, 1)
-        
-    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, batch: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Forward pass through GCN-Pool module.
-        
-        Args:
-            x: Node features (n_nodes, input_dim)
-            edge_index: Edge indices (2, n_edges)
-            batch: Batch assignment for each node
-            
-        Returns:
-            Tuple of (pooled_features, pooled_edge_index)
-        """
-        # Graph convolution to enrich features
-        x_conv = F.relu(self.conv(x, edge_index))
-        
-        # Calculate attention scores for pooling
-        attention_scores = torch.sigmoid(self.attention(x_conv, edge_index))
-        
-        # Select top-k nodes based on attention scores
-        if batch is None:
-            batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
-        
-        # Simple top-k selection (can be improved with more sophisticated pooling)
-        n_nodes = x.size(0)
-        k = max(1, int(n_nodes * self.pooling_ratio))
-        
-        # Get top-k nodes
-        _, top_indices = torch.topk(attention_scores.squeeze(), k)
-        
-        # Create pooled features
-        pooled_x = x_conv[top_indices] * attention_scores[top_indices]
-        
-        # Create new edge index for pooled graph
-        # Map old indices to new indices
-        old_to_new = {old_idx.item(): new_idx for new_idx, old_idx in enumerate(top_indices)}
-        
-        # Filter edges that connect selected nodes
-        mask = torch.zeros(edge_index.size(1), dtype=torch.bool, device=edge_index.device)
-        new_edge_list = []
-        
-        for i in range(edge_index.size(1)):
-            src, dst = edge_index[0, i].item(), edge_index[1, i].item()
-            if src in old_to_new and dst in old_to_new:
-                new_edge_list.append([old_to_new[src], old_to_new[dst]])
-        
-        if new_edge_list:
-            pooled_edge_index = torch.tensor(new_edge_list, dtype=torch.long, device=edge_index.device).t()
-        else:
-            # If no edges remain, create empty edge index
-            pooled_edge_index = torch.empty((2, 0), dtype=torch.long, device=edge_index.device)
-        
-        return pooled_x, pooled_edge_index
-
-
-class HierarchicalStructureGNN(nn.Module):
-    """
-    Hierarchical Graph Neural Network for protein structure embedding.
-    """
-    
-    def __init__(self, input_dim: int = 148, hidden_dims: List[int] = [256, 256, 256], 
-                 pooling_ratios: List[float] = [0.7, 0.5, 0.3], final_dim: int = 512):
-        """
-        Initialize hierarchical structure GNN.
-        
-        Args:
-            input_dim: Input feature dimension (20 + node2vec_dim)
-            hidden_dims: Hidden dimensions for each GCN-Pool module
-            pooling_ratios: Pooling ratios for each module
-            final_dim: Final embedding dimension
-        """
-        super().__init__()
-        
-        self.modules_list = nn.ModuleList()
-        
-        # Create stacked GCN-Pool modules
-        prev_dim = input_dim
-        for hidden_dim, pool_ratio in zip(hidden_dims, pooling_ratios):
-            self.modules_list.append(GraphConvPoolModule(prev_dim, hidden_dim, pool_ratio))
-            prev_dim = hidden_dim
-        
-        # Final projection layer
-        self.final_projection = nn.Linear(prev_dim * 2, final_dim)  # *2 for mean+max pooling
-        
-    def forward(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass through hierarchical GNN.
-        
-        Args:
-            x: Initial node features
-            edge_index: Edge indices
-            
-        Returns:
-            Final protein embedding
-        """
-        current_x = x
-        current_edge_index = edge_index
-        
-        print(f"    → Input to hierarchical GNN: nodes={current_x.shape[0]}, features={current_x.shape[1]}")
-        
-        # Pass through stacked GCN-Pool modules
-        for i, module in enumerate(self.modules_list):
-            current_x, current_edge_index = module(current_x, current_edge_index)
-            print(f"    → After module {i+1}: nodes={current_x.shape[0]}, features={current_x.shape[1]}")
-        
-        # Final readout: mean + max pooling
-        if current_x.size(0) > 0:
-            mean_pool = torch.mean(current_x, dim=0)
-            max_pool = torch.max(current_x, dim=0)[0]
-            combined = torch.cat([mean_pool, max_pool], dim=0)
-        else:
-            # Handle edge case of empty graph
-            combined = torch.zeros(current_x.size(1) * 2, device=current_x.device)
-        
-        # Final projection
-        final_embedding = self.final_projection(combined)
-        
-        print(f"    → Final embedding shape: {final_embedding.shape}")
-        
-        return final_embedding
+        print(f"  → Contact graph created: {len(edges)} edges with threshold {self.contact_threshold}Å")
+        return G
 
 
 class ProteinStructureEmbedder:
-    """
-    Main class for processing proteins and generating structure embeddings.
-    """
+    """Main class for processing proteins and generating structure embeddings"""
     
-    def __init__(self, contact_threshold: float = 10.0, node2vec_dim: int = 128, 
+    def __init__(self, contact_threshold: float = 10.0, node2vec_dim: int = 30, 
                  final_embedding_dim: int = 512):
         """
         Initialize the protein structure embedder.
@@ -355,22 +306,17 @@ class ProteinStructureEmbedder:
         Args:
             contact_threshold: Distance threshold for contact map (Angstroms)
             node2vec_dim: Dimension of node2vec structural embeddings
-            final_embedding_dim: Final embedding dimension
+            final_embedding_dim: Final embedding dimension (for compatibility, actual dim will be node2vec_dim + 26)
         """
-        self.processor = ProteinStructureProcessor(contact_threshold, node2vec_dim)
+        self.processor = ProteinStructureProcessor(contact_threshold)
+        self.node2vec_dim = node2vec_dim
         self.final_embedding_dim = final_embedding_dim
         
-        # Initialize hierarchical GNN
-        input_dim = 20 + node2vec_dim  # one-hot + structural embeddings
-        self.gnn = HierarchicalStructureGNN(
-            input_dim=input_dim,
-            hidden_dims=[256, 256, 256],
-            pooling_ratios=[0.7, 0.5, 0.3],
-            final_dim=final_embedding_dim
-        )
-        
-        # Set to evaluation mode (no training)
-        self.gnn.eval()
+        # Node2vec parameters (following reference)
+        self.p = 0.8
+        self.q = 1.2
+        self.num_walks = 5
+        self.walk_length = 30
     
     def process_single_protein(self, pdb_file: str) -> Optional[np.ndarray]:
         """
@@ -390,37 +336,57 @@ class ProteinStructureEmbedder:
             return None
         
         amino_acids, ca_coords = result
+        sequence = ''.join(amino_acids)
         
-        # Step 2: Create contact map graph
-        adjacency = self.processor.create_contact_map_graph(ca_coords)
+        # Step 2: Create contact map and convert to graph
+        distances = self.processor.create_contact_map(ca_coords)
+        contact_graph = self.processor.distance_to_contact_graph(distances)
         
-        # Step 3: Learn structural embeddings with node2vec
-        structural_embeddings = self.processor.learn_structural_embeddings(adjacency)
+        if contact_graph.number_of_nodes() == 0:
+            print(f"  ✗ Empty contact graph for {os.path.basename(pdb_file)}")
+            return None
         
-        # Step 4: Create initial feature vectors
-        initial_features = self.processor.create_initial_features(amino_acids, structural_embeddings)
+        # Step 3: Node2vec on contact graph
+        print(f"  → Running node2vec on graph with {contact_graph.number_of_nodes()} nodes")
         
-        # Step 5: Convert to PyTorch tensors and create graph data
-        x = torch.FloatTensor(initial_features)
+        try:
+            graph_walker = Graph(contact_graph, is_directed=False, p=self.p, q=self.q)
+            graph_walker.preprocess_transition_probs()
+            
+            walks = graph_walker.simulate_walks(self.num_walks, self.walk_length)
+            node2vec_vectors = learn_node2vec_embeddings(walks, 
+                                                       contact_graph.number_of_nodes(), 
+                                                       self.node2vec_dim)
+            
+            print(f"  → Node2vec embeddings: {node2vec_vectors.shape}")
+            
+        except Exception as e:
+            print(f"  ✗ Error in node2vec: {e}")
+            return None
         
-        # Add self-loops to adjacency matrix for GCN
-        adjacency_with_loops = adjacency + np.eye(adjacency.shape[0])
-        edge_index, _ = dense_to_sparse(torch.FloatTensor(adjacency_with_loops))
+        # Step 4: Create sequence one-hot encoding
+        sequence_onehot = seq2onehot(sequence)
+        print(f"  → Sequence one-hot: {sequence_onehot.shape}")
         
-        print(f"  → Graph data: nodes={x.shape[0]}, edges={edge_index.shape[1]}")
+        # Step 5: Combine node2vec with sequence features
+        combined_features = add_sequence_features(node2vec_vectors, sequence_onehot)
+        print(f"  → Combined features: {combined_features.shape}")
         
-        # Step 6: Pass through hierarchical GNN
-        with torch.no_grad():
-            try:
-                final_embedding = self.gnn(x, edge_index)
-                embedding_np = final_embedding.cpu().numpy()
-                
-                print(f"  ✓ Generated embedding: shape {embedding_np.shape}")
-                return embedding_np
-                
-            except Exception as e:
-                print(f"  ✗ Error in GNN processing: {e}")
-                return None
+        # Step 6: Global pooling to get final protein representation
+        # Use mean and max pooling like in the original, but simpler
+        mean_pool = np.mean(combined_features, axis=0)
+        max_pool = np.max(combined_features, axis=0)
+        final_embedding = np.concatenate([mean_pool, max_pool])
+        
+        # Optional: project to target dimension if specified
+        if self.final_embedding_dim and self.final_embedding_dim != final_embedding.shape[0]:
+            # Simple linear projection (you could make this learnable)
+            projection_matrix = np.random.normal(0, 0.1, 
+                                               (final_embedding.shape[0], self.final_embedding_dim))
+            final_embedding = np.dot(final_embedding, projection_matrix)
+        
+        print(f"  ✓ Generated embedding: shape {final_embedding.shape}")
+        return final_embedding
     
     def process_protein_directory(self, pdb_dir: str, output_dir: str, 
                                 max_proteins: Optional[int] = None):
@@ -443,14 +409,18 @@ class ProteinStructureEmbedder:
         
         print(f"Found {len(pdb_files)} PDB files to process")
         print(f"Output directory: {output_dir}")
-        print(f"Target embedding dimension: {self.final_embedding_dim}")
+        print(f"Architecture: Contact Map → Node2vec → Sequence One-hot → Global Pooling")
+        print(f"Node2vec dim: {self.node2vec_dim}, Final dim: {self.final_embedding_dim}")
         
         successful = 0
         failed = 0
         
         for pdb_file in tqdm(pdb_files, desc="Processing proteins"):
-            # Extract protein ID from filename (remove AF- prefix and -F1-model_v4.pdb suffix)
-            protein_id = pdb_file.replace('AF-', '').replace('-F1-model_v4.pdb', '')
+            # Extract protein ID from filename
+            if pdb_file.startswith('AF-'):
+                protein_id = pdb_file.replace('AF-', '').replace('-F1-model_v4.pdb', '')
+            else:
+                protein_id = pdb_file.replace('.pdb', '')
             
             # Check if embedding already exists
             output_file = os.path.join(output_dir, f"{protein_id}.npy")
@@ -479,24 +449,25 @@ class ProteinStructureEmbedder:
 
 def main():
     """
-    Main function to run the structure embedding pipeline.
+    Main function to run the refined structure embedding pipeline.
     """
     # Configuration
     pdb_input_dir = "/SAN/bioinf/PFP/embeddings/structure/pdb_files"
-    embedding_output_dir = "/SAN/bioinf/PFP/embeddings/structure/structure_embed"
+    embedding_output_dir = "/SAN/bioinf/PFP/embeddings/graph3"
     
-    # Initialize embedder
-    print("=== Hierarchical Protein Structure Embedding Pipeline ===")
-    print("Architecture: Phase 1 (Contact Map + Node2Vec) → Phase 2 (Hierarchical GCN-Pool)")
+    # Initialize embedder with refined architecture
+    print("=== Refined Protein Structure Embedding Pipeline ===")
+    print("Architecture: PDB → Contact Map → Node2vec + Sequence One-hot → Global Pooling")
+    print("Following proven architecture from reference paper")
     print()
     
     embedder = ProteinStructureEmbedder(
         contact_threshold=10.0,    # 10 Angstroms for contact map
-        node2vec_dim=128,          # 128-dim structural embeddings
+        node2vec_dim=30,           # 30-dim node2vec (matching reference)
         final_embedding_dim=512    # 512-dim final embeddings
     )
     
-    # Process proteins (start with a small subset for testing)
+    # Process proteins
     embedder.process_protein_directory(
         pdb_dir=pdb_input_dir,
         output_dir=embedding_output_dir

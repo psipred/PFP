@@ -114,7 +114,7 @@ class AP_align_fuse(nn.Module):
         fusion_cat = torch.cat([seq_embeddings_suffix, fusion_out], dim=2)  # [B, seq_len, 1280+768]
         
         # # 7) Process with a token-level transformer
-        # seq_pred = self.token_suffix_transformer_res(fusion_cat)  # [B, seq_len, 1280+768]
+        seq_pred = self.token_suffix_transformer_res(fusion_cat)  # [B, seq_len, 1280+768]
         
         # # 8) Apply the intermediate classification layer and reshape for batch normalization.
         # seq_pred = torch.relu(

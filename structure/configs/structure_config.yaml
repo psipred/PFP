@@ -17,15 +17,15 @@ dataset:
   train_labels: "${data_dir}/${aspect}/${aspect}_train_labels_fold${fold}.npz"
   valid_names: "${data_dir}/${aspect}/${aspect}_valid_names_fold${fold}.npy"
   valid_labels: "${data_dir}/${aspect}/${aspect}_valid_labels_fold${fold}.npz"
-  batch_size: 16
+  batch_size: 5
   num_workers: 0
 
 # Graph construction parameters
 graph:
-  type: "knn"  # Options: "knn" or "radius"
+  type: "radius"  # Options: "knn" or "radius"
   k: 10  # Number of neighbors for k-NN graph
   radius: 10.0  # Cutoff distance in Angstroms for radius graph
-  use_esm_features: false  # Use ESM embeddings as node features
+  use_esm_features: true  # Use ESM embeddings as node features
   cache_graphs: true  # Cache constructed graphs in memory
 
 # Model architecture
@@ -34,7 +34,7 @@ model:
   hidden_dim: 256
   embedding_dim: 512  # Output dimension of EGNN
   n_layers: 4  # Number of EGNN layers
-  dropout: 0.1
+  dropout: 0.3
   update_pos: false  # Don't update positions for proteins
   pool: "mean"  # Global pooling: "mean" or "max"
   
@@ -53,8 +53,8 @@ model:
 optim:
   epochs: 100
   lr: 0.0001
-  weight_decay: 0.00001
-  patience: 15  # Early stopping patience
+  weight_decay: 0.0001
+  patience: 10  # Early stopping patience
   min_epochs: 10
   monitor: "loss"  # "loss" or "fmax"
   clip_grad: 1.0  # Gradient clipping
@@ -81,3 +81,18 @@ CCO:
 MFO:
   model:
     output_dim: 483
+
+# python train_structure.py aspect=BPO model.output_dim=1302 graph.type=radius graph.radius=8.0 graph.k=8.0  && \
+# python train_structure.py aspect=CCO model.output_dim=453 graph.type=radius graph.radius=8.0  graph.k=8.0 && \
+# python train_structure.py aspect=MFO model.output_dim=483 graph.type=radius graph.radius=8.0 graph.k=8.0 && \
+# python train_structure.py aspect=BPO model.output_dim=1302 graph.type=radius graph.radius=12.0 graph.k=12.0  && \
+# python train_structure.py aspect=CCO model.output_dim=453 graph.type=radius graph.radius=12.0 graph.k=12.0  && \
+# python train_structure.py aspect=MFO model.output_dim=483 graph.type=radius graph.radius=12.0 graph.k=12.0  
+
+# k-NN graph, k = 10 (default)
+# python train_structure.py aspect=BPO model.output_dim=1302 graph.type=knn graph.k=10 && \
+# python train_structure.py aspect=CCO model.output_dim=453  graph.type=knn graph.k=10 && \
+# python train_structure.py aspect=MFO model.output_dim=483  graph.type=knn graph.k=10 && \
+# python train_structure.py aspect=BPO model.output_dim=1302 graph.type=knn graph.k=20 && \
+# python train_structure.py aspect=CCO model.output_dim=453  graph.type=knn graph.k=20 && \
+# python train_structure.py aspect=MFO model.output_dim=483  graph.type=knn graph.k=20
