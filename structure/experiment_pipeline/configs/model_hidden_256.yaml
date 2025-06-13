@@ -1,0 +1,57 @@
+seed: 42
+data:
+  pdb_dir: /SAN/bioinf/PFP/embeddings/structure/pdb_files
+  esm_embedding_dir: /SAN/bioinf/PFP/embeddings/cafa5_small/esm_af
+data_dir: /SAN/bioinf/PFP/PFP/Data/network_training_data
+fold: 0
+dataset:
+  train_names: ${data_dir}/${aspect}/${aspect}_train_names_fold${fold}.npy
+  train_labels: ${data_dir}/${aspect}/${aspect}_train_labels_fold${fold}.npz
+  valid_names: ${data_dir}/${aspect}/${aspect}_valid_names_fold${fold}.npy
+  valid_labels: ${data_dir}/${aspect}/${aspect}_valid_labels_fold${fold}.npz
+  batch_size: 5
+  num_workers: 0
+graph:
+  type: radius
+  k: 10
+  radius: 10.0
+  use_esm_features: true
+  cache_graphs: true
+model:
+  hidden_dim: 256
+  embedding_dim: 512
+  n_layers: 4
+  dropout: 0.3
+  update_pos: false
+  pool: mean
+  output_dim: 453
+  classifier_hidden_dim: 512
+  classifier_layers: 2
+  projection_dim: 512
+  activation: relu
+  use_mmstie_fusion: false
+  mmstie_pretrained: /SAN/bioinf/PFP/pretrained/best_model_fuse_0.8322829131652661.pt
+optim:
+  epochs: 100
+  lr: 0.0001
+  weight_decay: 0.0001
+  patience: 10
+  min_epochs: 10
+  monitor: loss
+  clip_grad: 1.0
+  use_scheduler: true
+  scheduler_patience: 5
+log:
+  out_dir: /SAN/bioinf/PFP/PFP/structure/experiments/model_hidden_256
+  eval_every: 1
+  save_every: 10
+aspect: CCO
+BPO:
+  model:
+    output_dim: 1302
+CCO:
+  model:
+    output_dim: 453
+MFO:
+  model:
+    output_dim: 483

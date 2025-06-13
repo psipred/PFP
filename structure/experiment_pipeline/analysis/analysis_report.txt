@@ -1,0 +1,71 @@
+STRUCTURE-BASED GO PREDICTION EXPERIMENT ANALYSIS
+============================================================
+
+Total experiments analyzed: 2
+Experiments by type:
+  - graph: 1
+  - model: 1
+
+1. BEST OVERALL PERFORMANCE
+----------------------------------------
+Experiment: graph_knn_k5
+F-max: 0.6638
+mAP: 0.2150
+Configuration:
+  - Graph: knn (k=5)
+  - Layers: 4
+  - Hidden dim: 256
+  - Learning rate: 0.0001
+
+2. BEST BY CATEGORY
+----------------------------------------
+
+GRAPH:
+  Experiment: graph_knn_k5
+  F-max: 0.6638
+
+MODEL:
+  Experiment: model_layers_2
+  F-max: 0.6590
+
+3. HYPERPARAMETER INSIGHTS
+----------------------------------------
+
+Graph Construction:
+  k-NN average F-max: 0.6638
+  Radius average F-max: nan
+  Best k value: 5
+
+Model Architecture:
+  2 layers: 0.6590 average F-max
+  4 layers: 0.6638 average F-max
+
+4. TRAINING EFFICIENCY
+----------------------------------------
+Average training time: 4.34 hours
+Average epochs: 26.0
+
+Most efficient experiment: model_layers_2
+  F-max: 0.6590
+  Training time: 4.21 hours
+
+5. STATISTICAL SUMMARY
+----------------------------------------
+
+best_Fmax_protein:
+  Mean: 0.6614
+  Std: 0.0034
+  Min: 0.6590
+  Max: 0.6638
+
+best_macro_AP:
+  Mean: 0.2039
+  Std: 0.0157
+  Min: 0.1928
+  Max: 0.2150
+
+best_coverage:
+  Mean: 0.6361
+  Std: 0.0074
+  Min: 0.6308
+  Max: 0.6413
