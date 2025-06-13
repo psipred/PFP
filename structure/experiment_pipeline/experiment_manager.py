@@ -127,8 +127,8 @@ class ExperimentManager:
         for exp in experiments:
             script_content = f"""#!/bin/bash
 #$ -N {exp['name']}
-#$ -l h_vmem=40G
-#$ -l tmem=40G
+#$ -l h_vmem=50G
+#$ -l tmem=50G
 #$ -l h_rt=8:0:0
 #$ -j y
 #$ -o /SAN/bioinf/PFP/PFP/structure/experiments/logs/{exp['name']}.log
