@@ -63,11 +63,11 @@ class PDBProcessor:
                             # Skip residues without CA
                             continue
                             
-            # Truncate to max length 1024
-            if len(sequence) > 1024:
-                logger.info(f"Truncating {protein_id} from {len(sequence)} to 1024 residues")
-                sequence = sequence[:1024]
-                ca_coords = ca_coords[:1024]
+            # Truncate to max length 1022
+            if len(sequence) > 1022:
+                # logger.info(f"Truncating {protein_id} from {len(sequence)} to 1022 residues")
+                sequence = sequence[:1022]
+                ca_coords = ca_coords[:1022]
                 
             return sequence, np.array(ca_coords, dtype=np.float32), protein_id
             

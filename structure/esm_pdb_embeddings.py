@@ -23,28 +23,83 @@ from pdb_graph_utils import PDBProcessor
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def get_sequences_to_process(
+    pdb_dir: str,
+    output_dir: str,
+    force_regenerate: bool = False
+) -> List[Tuple[str, str, str]]:
+    """
+    Get list of sequences that need processing.
+    
+    Returns:
+        List of (protein_id, sequence, pdb_path) tuples
+    """
+    pdb_processor = PDBProcessor(pdb_dir)
+    output_path = Path(output_dir)
+    sequences_to_process = []
+    
+    # Get all PDB files
+    pdb_files = list(Path(pdb_dir).glob("*.pdb"))
+    logger.info(f"Found {len(pdb_files)} PDB files")
+    
+    for pdb_file in tqdm(pdb_files, desc="Checking which files need processing"):
+        try:
+            # Extract protein ID first
+            protein_id = pdb_processor._extract_protein_id(pdb_file.name)
+            output_file = output_path / f"{protein_id}.npy"
+            
+            # Skip if embedding already exists (unless force regenerate)
+            if not force_regenerate and output_file.exists():
+                continue
+                
+            # Only extract sequence if we need to process this file
+            seq, coords, _ = pdb_processor.extract_sequence_and_coords(pdb_file)
+            sequences_to_process.append((protein_id, seq, str(pdb_file)))
+            
+        except Exception as e:
+            logger.warning(f"Failed to process {pdb_file.name}: {e}")
+            continue
+    
+    logger.info(f"Need to process {len(sequences_to_process)} sequences")
+    return sequences_to_process
+
+def validate_sequence_for_esm(sequence: str, model_config) -> bool:
+    """
+    Validate if sequence can be processed by ESM model.
+    
+    Args:
+        sequence: Protein sequence
+        model_config: ESM model config
+        
+    Returns:
+        True if sequence is valid
+    """
+    # Check length (leave room for special tokens)
+    if len(sequence) > 1024:  # ESM typically handles up to 1024 residues
+        logger.warning(f"Sequence too long: {len(sequence)} > 1024")
+        return False
+        
+    # Check for invalid characters
+    valid_aas = set('ACDEFGHIKLMNPQRSTVWYX')  # X for unknown
+    invalid_chars = set(sequence) - valid_aas
+    if invalid_chars:
+        logger.warning(f"Invalid amino acids found: {invalid_chars}")
+        return False
+        
+    return True
+
 def generate_esm_embeddings_for_pdbs(
     pdb_dir: str = "/SAN/bioinf/PFP/embeddings/structure/pdb_files",
     output_dir: str = "/SAN/bioinf/PFP/embeddings/cafa5_small/esm_af",
     model_name: str = "facebook/esm1b_t33_650M_UR50S",
-    batch_size: int = 8,
+    batch_size: int = 4,  # Reduced batch size
     use_gpu: bool = True,
-    mean_pool: bool = False,  # Keep per-residue for node features
+    mean_pool: bool = False,
     force_regenerate: bool = False,
     debug: bool = False
 ):
     """
     Generate ESM embeddings for sequences extracted from PDB files.
-    
-    Args:
-        pdb_dir: Directory containing PDB files
-        output_dir: Where to save embeddings
-        model_name: ESM model to use
-        batch_size: Batch size for inference
-        use_gpu: Use GPU if available
-        mean_pool: If True, average over sequence length
-        force_regenerate: Regenerate even if files exist
-        debug: Enable debug mode for CUDA errors
     """
     # Enable CUDA debugging if requested
     if debug and use_gpu:
@@ -55,13 +110,20 @@ def generate_esm_embeddings_for_pdbs(
     device = torch.device("cuda" if use_gpu and torch.cuda.is_available() else "cpu")
     logger.info(f"Using device: {device}")
     
-    # Clear GPU cache to avoid memory issues
+    # Clear GPU cache
     if device.type == 'cuda':
         torch.cuda.empty_cache()
     
     # Create output directory
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+    
+    # Get sequences that need processing (efficient filtering)
+    sequences_to_process = get_sequences_to_process(pdb_dir, output_dir, force_regenerate)
+    
+    if not sequences_to_process:
+        logger.info("All embeddings already exist. Use force_regenerate=True to regenerate.")
+        return
     
     # Load ESM model
     logger.info(f"Loading ESM model: {model_name}")
@@ -72,80 +134,91 @@ def generate_esm_embeddings_for_pdbs(
     model = model.to(device)
     model.eval()
     
-    # Log model info
-    logger.info(f"Model vocab size: {model.config.vocab_size}")
-    logger.info(f"Model max position embeddings: {model.config.max_position_embeddings}")
+    # Filter out invalid sequences
+    valid_sequences = []
+    for protein_id, sequence, pdb_path in sequences_to_process:
+        if validate_sequence_for_esm(sequence, model.config):
+            valid_sequences.append((protein_id, sequence, pdb_path))
+        else:
+            logger.warning(f"Skipping invalid sequence: {protein_id}")
     
-    # Process PDB files to extract sequences
-    logger.info("Extracting sequences from PDB files...")
-    pdb_processor = PDBProcessor(pdb_dir)
-    sequence_data = pdb_processor.process_all_pdbs()
-    
-    # Filter sequences that need processing
-    sequences_to_process = []
-    for protein_id, (sequence, _) in sequence_data.items():
-        output_file = output_path / f"{protein_id}.npy"
-        if force_regenerate or not output_file.exists():
-            sequences_to_process.append((protein_id, sequence))
-        
-    if not sequences_to_process:
-        logger.info("All embeddings already exist. Use force_regenerate=True to regenerate.")
-        return
-        
-    logger.info(f"Generating embeddings for {len(sequences_to_process)} sequences...")
+    logger.info(f"Processing {len(valid_sequences)} valid sequences...")
     
     # Process in batches
-    for i in tqdm(range(0, len(sequences_to_process), batch_size), desc="Generating embeddings"):
-        batch = sequences_to_process[i:i + batch_size]
+    for i in tqdm(range(0, len(valid_sequences), batch_size), desc="Generating embeddings"):
+        batch = valid_sequences[i:i + batch_size]
         batch_ids = [item[0] for item in batch]
         batch_seqs = [item[1] for item in batch]
         
         try:
-            # Tokenize - set max_length to accommodate sequence + special tokens
+            # Tokenize with proper max length
             encoded = tokenizer(
                 batch_seqs,
                 padding="longest",
                 truncation=True,
-                max_length=1026,  # 1024 residues + CLS + SEP tokens
+                max_length=1026,  # 1024 residues + CLS + SEP
                 return_tensors="pt",
                 add_special_tokens=True
             )
-            
-            # Check for issues before sending to GPU
-            if encoded["input_ids"].shape[1] > 1026:
-                logger.warning(f"Sequence too long: {encoded['input_ids'].shape[1]} tokens")
-                continue
             
             # Move to device
             input_ids = encoded["input_ids"].to(device)
             attention_mask = encoded["attention_mask"].to(device)
             
-            # Verify token IDs are in valid range
+            # Additional validation
             if input_ids.max() >= model.config.vocab_size:
-                logger.error(f"Invalid token ID found: {input_ids.max()} >= {model.config.vocab_size}")
+                logger.error(f"Invalid token ID: {input_ids.max()} >= {model.config.vocab_size}")
                 continue
             
             # Generate embeddings
             with torch.no_grad():
                 outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-                embeddings = outputs[0]  # (batch_size, seq_len, hidden_dim)
+                embeddings = outputs.last_hidden_state  # (batch_size, seq_len, hidden_dim)
+                
+            # Save each sequence
+            for idx, (protein_id, original_seq, _) in enumerate(batch):
+                emb = embeddings[idx].cpu()
+                seq_len = len(original_seq)
+                
+                # Extract residue embeddings (skip CLS token)
+                residue_embeddings = emb[1:1+seq_len]
+                
+                if mean_pool:
+                    saved_emb = residue_embeddings.mean(dim=0).numpy().astype(np.float32)
+                else:
+                    saved_emb = residue_embeddings.numpy().astype(np.float32)
+                
+                # Save
+                output_file = output_path / f"{protein_id}.npy"
+                np.save(
+                    output_file,
+                    {"name": protein_id, "embedding": saved_emb},
+                    allow_pickle=True
+                )
+                
+                logger.debug(f"Processed {protein_id}: seq_len={seq_len}, emb_shape={saved_emb.shape}")
                 
         except RuntimeError as e:
             logger.error(f"Error processing batch {i//batch_size}: {e}")
             logger.error(f"Batch IDs: {batch_ids}")
             logger.error(f"Sequence lengths: {[len(seq) for seq in batch_seqs]}")
             
-            # Try processing sequences individually
-            for j, (seq_id, seq_str) in enumerate(batch):
+            # Process individually on error
+            for protein_id, seq_str, _ in batch:
                 try:
-                    logger.info(f"Retrying {seq_id} individually...")
+                    logger.info(f"Retrying {protein_id} individually...")
                     
-                    # Process single sequence - accommodate full sequence + special tokens
+                    # Validate sequence again
+                    if not validate_sequence_for_esm(seq_str, model.config):
+                        logger.warning(f"Skipping invalid sequence: {protein_id}")
+                        continue
+                    
+                    # Process single sequence
                     single_encoded = tokenizer(
                         seq_str,
                         padding=False,
                         truncation=True,
-                        max_length=1026,  # 1024 residues + CLS + SEP tokens
+                        max_length=1024,
                         return_tensors="pt",
                         add_special_tokens=True
                     )
@@ -153,76 +226,42 @@ def generate_esm_embeddings_for_pdbs(
                     single_input_ids = single_encoded["input_ids"].to(device)
                     single_attention_mask = single_encoded["attention_mask"].to(device)
                     
+                    # Additional validation
+                    if single_input_ids.max() >= model.config.vocab_size:
+                        logger.error(f"Invalid token ID for {protein_id}: {single_input_ids.max()}")
+                        continue
+                    
                     with torch.no_grad():
                         single_outputs = model(
                             input_ids=single_input_ids,
                             attention_mask=single_attention_mask
                         )
-                        single_embedding = single_outputs[0]
+                        single_embedding = single_outputs.last_hidden_state
                     
-                    # Save individual result - FIXED
-                    mask = single_attention_mask[0].bool()
+                    # Save individual result
                     emb = single_embedding[0].cpu()
-                    
-                    # Find actual sequence tokens (excluding CLS and SEP)
-                    # CLS is at position 0, SEP is at the last non-padded position
                     seq_len = len(seq_str)
-                    residue_embeddings = emb[1:1+seq_len]  # Skip CLS, take exactly seq_len tokens
+                    residue_embeddings = emb[1:1+seq_len]
                     
                     if mean_pool:
                         saved_emb = residue_embeddings.mean(dim=0).numpy().astype(np.float32)
                     else:
                         saved_emb = residue_embeddings.numpy().astype(np.float32)
                     
-                    output_file = output_path / f"{seq_id}.npy"
+                    output_file = output_path / f"{protein_id}.npy"
                     np.save(
                         output_file,
-                        {"name": seq_id, "embedding": saved_emb},
+                        {"name": protein_id, "embedding": saved_emb},
                         allow_pickle=True
                     )
-                    logger.info(f"Successfully processed {seq_id}: seq_len={seq_len}, emb_shape={saved_emb.shape}")
+                    logger.info(f"Successfully processed {protein_id}: seq_len={seq_len}, emb_shape={saved_emb.shape}")
                     
                 except Exception as e2:
-                    logger.error(f"Failed to process {seq_id} even individually: {e2}")
+                    logger.error(f"Failed to process {protein_id} individually: {e2}")
                     continue
-            
-            continue
-        
-        # Save each sequence - FIXED
-        for idx, (protein_id, original_seq) in enumerate(zip(batch_ids, batch_seqs)):
-            emb = embeddings[idx].cpu()
-            
-            # Get actual sequence length and extract corresponding embeddings
-            seq_len = len(original_seq)
-            residue_embeddings = emb[1:1+seq_len]  # Skip CLS, take exactly seq_len tokens
-            
-            if mean_pool:
-                saved_emb = residue_embeddings.mean(dim=0).numpy().astype(np.float32)
-            else:
-                saved_emb = residue_embeddings.numpy().astype(np.float32)
-            
-            # Save in same format as existing embeddings
-            output_file = output_path / f"{protein_id}.npy"
-            np.save(
-                output_file,
-                {"name": protein_id, "embedding": saved_emb},
-                allow_pickle=True
-            )
-            
-            logger.debug(f"Processed {protein_id}: seq_len={seq_len}, emb_shape={saved_emb.shape}")
     
-    logger.info(f"Successfully generated embeddings for {len(sequences_to_process)} sequences")
+    logger.info(f"Successfully generated embeddings for sequences")
     logger.info(f"Embeddings saved to: {output_dir}")
-    
-    # Summary statistics
-    total_pdbs = len(sequence_data)
-    processed = len(sequences_to_process)
-    skipped = total_pdbs - processed
-    
-    logger.info(f"\nSummary:")
-    logger.info(f"  Total PDB files: {total_pdbs}")
-    logger.info(f"  Newly processed: {processed}")
-    logger.info(f"  Skipped (existing): {skipped}")
 
 
 def validate_embeddings(
@@ -280,7 +319,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str,
                        default="/SAN/bioinf/PFP/embeddings/cafa5_small/esm_af",
                        help="Output directory for embeddings")
-    parser.add_argument("--batch_size", type=int, default=8,
+    parser.add_argument("--batch_size", type=int, default=4,
                        help="Batch size for ESM inference")
     parser.add_argument("--force", action="store_true",
                        help="Force regeneration of existing embeddings")
