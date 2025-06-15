@@ -17,7 +17,7 @@ dataset:
   train_labels: "${data_dir}/${aspect}/${aspect}_train_labels_fold${fold}.npz"
   valid_names: "${data_dir}/${aspect}/${aspect}_valid_names_fold${fold}.npy"
   valid_labels: "${data_dir}/${aspect}/${aspect}_valid_labels_fold${fold}.npz"
-  batch_size: 5
+  batch_size: 16
   num_workers: 0
 
 # Graph construction parameters
