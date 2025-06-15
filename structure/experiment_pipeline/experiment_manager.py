@@ -122,9 +122,10 @@ class ExperimentManager:
     
     def create_submission_scripts(self, experiments: List[Dict]):
         """Create qsub submission scripts."""
-        
+      
         # Individual experiment scripts
         for exp in experiments:
+# $ -l h=!hoots-207-1.local  
             script_content = f"""#!/bin/bash
 #$ -N {exp['name']}
 #$ -l h_vmem=50G
@@ -135,6 +136,7 @@ class ExperimentManager:
 #$ -wd /SAN/bioinf/PFP/PFP/structure
 #$ -l gpu=true
 #$ -l h=!walter*
+
 #$ -pe gpu 1
 
 echo "Starting experiment: {exp['name']}"
