@@ -19,6 +19,24 @@ from dataclasses import dataclass, asdict
 import itertools
 from tqdm import tqdm
 
+# --------------------------------------------------------------------------- #
+# Mapping from experiment code letters to human‑readable model names          #
+# --------------------------------------------------------------------------- #
+MODEL_NAME_MAP = {
+    'A': 'ESM-only',
+    'B': 'Text-only',
+    'C1': 'Structure (Radius + One-Hot)',
+    'C2': 'Structure (Radius + ESM)',
+    'C3': 'Structure (k-NN + One-Hot)',
+    'C4': 'Structure (k-NN + ESM)',
+    'D': 'ESM + Text',
+    'E': 'ESM + Structure',
+    'F': 'Full Model',
+    'G': 'ESM + Text + Attention',
+    'H': 'ESM + Structure + Attention',
+    'I': 'Full Model + Attention',
+}
+
 # Add project root to path
 sys.path.append('/SAN/bioinf/PFP/PFP')
 
@@ -361,7 +379,7 @@ class ExperimentGenerator:
             ))
             # Model I: ESM + Text + Best Structure
             experiments.append(ExperimentConfig(
-                name=f"I_ESM_Text_Structure_attention{aspect}",
+                name=f"I_ESM_Text_Structure_attention_{aspect}",
                 experiment_type='multimodal',
                 features=['esm', 'text', 'structure'],
                 fusion_method='attention',
@@ -682,7 +700,7 @@ class ResultsAnalyzer:
                 model_df = df[df['model'] == model]
                 if not model_df.empty:
                     avg_fmax = model_df['best_Fmax_protein'].mean()
-                    f.write(f"- Model {model}: Average F-max = {avg_fmax:.4f}\n")
+                    f.write(f"- {MODEL_NAME_MAP.get(model, model)}: Average F-max = {avg_fmax:.4f}\n")
             
             # Group B: Structure models
             f.write("\n### Group B: Structure Models\n\n")
@@ -693,12 +711,13 @@ class ResultsAnalyzer:
                 if not model_df.empty:
                     avg_fmax = model_df['best_Fmax_protein'].mean()
                     structure_results.append((model, avg_fmax))
-                    f.write(f"- Model {model}: Average F-max = {avg_fmax:.4f}\n")
+                    f.write(f"- {MODEL_NAME_MAP.get(model, model)}: Average F-max = {avg_fmax:.4f}\n")
             
             # Determine best structure configuration
             if structure_results:
                 best_structure = max(structure_results, key=lambda x: x[1])
-                f.write(f"\n**Best Structure Configuration:** {best_structure[0]}\n")
+                best_structure_name = MODEL_NAME_MAP.get(best_structure[0], best_structure[0])
+                f.write(f"\n**Best Structure Configuration:** {best_structure_name}\n")
             
             # Group C: Multi-modal models
             f.write("\n### Group C: Multi-Modal Models\n\n")
@@ -707,7 +726,7 @@ class ResultsAnalyzer:
                 model_df = df[df['model'] == model]
                 if not model_df.empty:
                     avg_fmax = model_df['best_Fmax_protein'].mean()
-                    f.write(f"- Model {model}: Average F-max = {avg_fmax:.4f}\n")
+                    f.write(f"- {MODEL_NAME_MAP.get(model, model)}: Average F-max = {avg_fmax:.4f}\n")
             
             # Results by aspect
             f.write("\n## 3. Results by GO Aspect\n\n")
@@ -718,7 +737,8 @@ class ResultsAnalyzer:
                     f.write("| Model | F-max | mAP | AUROC |\n")
                     f.write("|-------|-------|-----|-------|\n")
                     for _, row in aspect_df.head(5).iterrows():
-                        f.write(f"| {row['model']} | {row['best_Fmax_protein']:.4f} | "
+                        model_disp = MODEL_NAME_MAP.get(row['model'], row['model'])
+                        f.write(f"| {model_disp} | {row['best_Fmax_protein']:.4f} | "
                                f"{row.get('best_macro_AP', 0):.4f} | "
                                f"{row.get('best_macro_AUROC', 0):.4f} |\n")
                 f.write("\n")
@@ -772,7 +792,7 @@ class ResultsAnalyzer:
             'F': 'Full Model',
             'G': 'ESM+Text+Attention',
             'H': 'ESM+Structure+Attention',
-            'I': 'Full Model+Attention'
+            'I': 'Full Model+Attention',
         }
         
         # Group by model and aspect
@@ -788,7 +808,7 @@ class ResultsAnalyzer:
                     })
         
         plot_df = pd.DataFrame(plot_data)
-        
+
         # Create grouped bar chart
         x = np.arange(len(main_models))
         width = 0.25
@@ -885,17 +905,19 @@ class ResultsAnalyzer:
             # Get top models for this aspect
             aspect_df = df[df['aspect'] == aspect].sort_values('best_Fmax_protein', ascending=False).head(3)
             
-            # Plot bars for AUPR
-            models = aspect_df['model'].tolist()
+            # New: map codes to labels for x-ticks
+            model_codes = aspect_df['model'].tolist()
             auprs = aspect_df['best_macro_AP'].tolist()
+
+            model_labels = [MODEL_NAME_MAP.get(m, m) for m in model_codes]
             
-            bars = ax.bar(range(len(models)), auprs, color=['#1f77b4', '#ff7f0e', '#2ca02c'])
+            bars = ax.bar(range(len(model_labels)), auprs, color=['#1f77b4', '#ff7f0e', '#2ca02c'])
             ax.set_ylim(0, 1)
             ax.set_xlabel('Model')
             ax.set_ylabel('AUPR')
             ax.set_title(f'{aspect} - Top Models by AUPR')
-            ax.set_xticks(range(len(models)))
-            ax.set_xticklabels(models)
+            ax.set_xticks(range(len(model_labels)))
+            ax.set_xticklabels(model_labels, rotation=15, ha='right')
             
             # Add value labels
             for bar, aupr in zip(bars, auprs):
@@ -1002,7 +1024,7 @@ def main():
         for aspect, stats in alignment_summary.items():
             print(f"  {aspect}: {stats['coverage']*100:.1f}% coverage")
         
-    elif args.action == 'generate':
+    elif args.action == 'generat    e':
         # Step 2: Generate experiment configurations
         print("Generating experiment configurations...")
         
