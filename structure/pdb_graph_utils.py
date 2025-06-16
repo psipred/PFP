@@ -206,16 +206,17 @@ class StructureGraphDataset(torch.utils.data.Dataset):
         esm_embedding_dir: str,
         names_npy: str,
         labels_npy: Optional[str] = None,
-        graph_type: str = "knn",
+        type: str = "knn",
         k: int = 10,
         radius: float = 10.0,
-        use_esm_node_features: bool = True,
-        cache_graphs: bool = False
+        use_esm_features: bool = False,
+        cache_graphs: bool = False,
+        name: str = "StructureGraphDataset"
     ):
         self.pdb_processor = PDBProcessor(pdb_dir)
-        self.graph_constructor = GraphConstructor(graph_type, k, radius)
+        self.graph_constructor = GraphConstructor(type, k, radius)
         self.esm_embedding_dir = Path(esm_embedding_dir)
-        self.use_esm_node_features = use_esm_node_features
+        self.use_esm_node_features = use_esm_features
         self.cache_graphs = cache_graphs
         self.graph_cache = {}
         
@@ -275,6 +276,7 @@ class StructureGraphDataset(torch.utils.data.Dataset):
             edge_index, edge_attr, node_pos = self.graph_constructor.construct_graph(ca_coords)
             
             # Load node features
+
             if self.use_esm_node_features:
                 node_features = self._load_esm_features(name, len(seq))
             else:
