@@ -26,7 +26,6 @@ class InterlabelGODataset(Dataset):
         self.feature_cache = dict()
         self.temp = dict()
         self.embedding_type = embedding_type
-        
         # Missing data tracking
         self.missing_data_count = 0
         self.missing_data_names = []
@@ -88,6 +87,7 @@ class InterlabelGODataset(Dataset):
             "structure": "/SAN/bioinf/PFP/embeddings/cafa5_small/graph3",
             "mmsite": "embeddings/mmstie", 
         }
+        
         return EMB_SUBDIR[embedding_type]
     
     def __len__(self):
