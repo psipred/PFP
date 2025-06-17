@@ -28,6 +28,9 @@ Radius or KNN methods for graph construction, one-hot encoding or esm for node f
 - **Model D**: ESM + Text (Concatenate fusion)
 - **Model E**: ESM + Best Structure (Concatenate fusion)
 - **Model F**: ESM + Text + Structure (Full model concatenate fusion)
+- **Model I**: ESM + Text (Muti-Head-Attention fusion)
+- **Model G**: ESM + Best Structure (Muti-Head-Attention fusion)
+- **Model H**: ESM + Text + Structure (Full model Muti-Head-Attention fusion)
 
 ## Setup Instructions
 
