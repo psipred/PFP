@@ -122,7 +122,7 @@ This table shows the improvement of each model over the naïve baseline:
 | 9 | ESM + Text + Attention | 0.6766 | 0.3933 | 0.9160 | nan |
 | 10 | Full Model + Attention | 0.6724 | 0.3599 | 0.9163 | nan |
 
-## 7. Best Configurations Summary {#best-configs}
+## 7. Best Configurations Summary 
 
 Summary of best performing configurations:
 
@@ -132,13 +132,4 @@ Summary of best performing configurations:
 | Best Single Modality | ESM-only | MFO | 0.6876 | 0.4301 | 0.9237 |
 | Best Multi-Modal | Full Model | MFO | 0.6828 | 0.4221 | 0.9154 |
 
-## 8. Computational Efficiency {#efficiency}
 
-Analysis of computational requirements:
-
-| Model Group | Avg Training Time (hours) | Avg F-max | Efficiency (F-max/hour) |
-|-------------|---------------------------|-----------|-------------------------|
-| Naïve | 0.01 | 0.4302 | 80.0985 |
-| Single Modality | nan | 0.5652 | 0.0000 |
-| Structure-based | nan | 0.5485 | 0.0000 |
-| Multi-Modal | nan | 0.5771 | 0.0000 |
