@@ -25,16 +25,20 @@ from tqdm import tqdm
 MODEL_NAME_MAP = {
     'A': 'ESM-only',
     'B': 'Text-only',
-    'C1': 'Structure (Radius + One-Hot)',
-    'C2': 'Structure (Radius + ESM)',
-    'C3': 'Structure (k-NN + One-Hot)',
-    'C4': 'Structure (k-NN + ESM)',
+    'C1': 'Structure (Radius + One-Hot) (10.0)',
+    'C2': 'Structure (Radius + ESM) (10.0)',
+    'C3': 'Structure (k-NN + One-Hot) (10.0)',
+    'C4': 'Structure (k-NN + ESM)(10.0)',
     'D': 'ESM + Text',
     'E': 'ESM + Structure',
     'F': 'Full Model',
     'G': 'ESM + Text + Attention',
     'H': 'ESM + Structure + Attention',
     'I': 'Full Model + Attention',
+    'C22': 'Radius + ESM (8.0)',
+    'C23': 'Radius + ESM (12.0)',
+    'C42': 'k-NN + ESM (5)',
+    'C43': 'k-NN + ESM (15)',
 }
 
 # Add project root to path
@@ -274,6 +278,7 @@ class ExperimentGenerator:
                 'radius': 10.0,
                 'use_esm_features': False
             },
+
             # C2: Radius Graph + ESM
             {
                 'name': 'C2_Radius_ESM',
@@ -281,6 +286,19 @@ class ExperimentGenerator:
                 'radius': 10.0,
                 'use_esm_features': True
             },
+            {
+                'name': 'C22_Radius_ESM',
+                'type': 'radius',
+                'radius': 8.0,
+                'use_esm_features': True
+            },
+            {
+                'name': 'C23_Radius_ESM',
+                'type': 'radius',
+                'radius': 12.0,
+                'use_esm_features': True
+            },
+
             # C3: k-NN Graph + One-Hot
             {
                 'name': 'C3_kNN_OneHot',
@@ -293,6 +311,21 @@ class ExperimentGenerator:
                 'name': 'C4_kNN_ESM',
                 'type': 'knn',
                 'k': 10,
+                'use_esm_features': True
+            },
+                        # C4: k-NN Graph + ESM
+            {
+                'name': 'C42_kNN_ESM',
+                'type': 'knn',
+                'k': 5,
+                'use_esm_features': True
+            },
+
+                                    # C4: k-NN Graph + ESM
+            {
+                'name': 'C43_kNN_ESM',
+                'type': 'knn',
+                'k': 15,
                 'use_esm_features': True
             }
         ]
@@ -704,7 +737,7 @@ class ResultsAnalyzer:
             
             # Group B: Structure models
             f.write("\n### Group B: Structure Models\n\n")
-            structure_models = ['C1', 'C2', 'C3', 'C4']
+            structure_models = ['C1', 'C2', 'C3', 'C4', 'C22', 'C23', 'C42', 'C43']
             structure_results = []
             for model in structure_models:
                 model_df = df[df['model'] == model]
@@ -781,12 +814,16 @@ class ResultsAnalyzer:
         fig, ax = plt.subplots(figsize=(12, 8))
         
         # Prepare data for main models
-        main_models = ['A', 'B', 'C2', 'C4', 'D', 'E', 'F', 'G', 'H', 'I']  # Best from each category
+        main_models = ['A', 'B', 'C2', 'C4', 'C22', 'C23', 'C42', 'C43', 'D', 'E', 'F', 'G', 'H', 'I']  # Best from each category
         model_names = {
             'A': 'ESM-only',
             'B': 'Text-only', 
             'C2': 'Structure (Radius+ESM)',
             'C4': 'Structure (kNN+ESM)',
+            'C22': 'Radius + ESM (8.0)',
+            'C23': 'Radius + ESM (12.0)',
+            'C42': 'k-NN + ESM (5)',
+            'C43': 'k-NN + ESM (15)',
             'D': 'ESM+Text',
             'E': 'ESM+Structure',
             'F': 'Full Model',
@@ -845,12 +882,16 @@ class ResultsAnalyzer:
         fig, ax = plt.subplots(figsize=(10, 6))
         
         # Structure models only
-        structure_models = ['C1', 'C2', 'C3', 'C4']
+        structure_models = ['C1', 'C2', 'C3', 'C4', 'C22', 'C23', 'C42', 'C43']
         model_names = {
-            'C1': 'Radius + One-Hot',
-            'C2': 'Radius + ESM',
-            'C3': 'k-NN + One-Hot',
-            'C4': 'k-NN + ESM'
+            'C1': 'Radius + One-Hot (10)',
+            'C2': 'Radius + ESM (10)',
+            'C3': 'k-NN + One-Hot (10)',
+            'C4': 'k-NN + ESM (10)',
+            'C22': 'Radius + ESM (8.0)',
+            'C23': 'Radius + ESM (12.0)',
+            'C42': 'k-NN + ESM (5)',
+            'C43': 'k-NN + ESM (15)',
         }
         
         # Calculate average F-max across aspects
@@ -1024,7 +1065,7 @@ def main():
         for aspect, stats in alignment_summary.items():
             print(f"  {aspect}: {stats['coverage']*100:.1f}% coverage")
         
-    elif args.action == 'generat    e':
+    elif args.action == 'generate':
         # Step 2: Generate experiment configurations
         print("Generating experiment configurations...")
         
