@@ -1,17 +1,6 @@
 # Comprehensive Multi-Modal GO Prediction Results
 
-Generated: 2025-06-17 16:56:48
 
-## Table of Contents
-
-1. [Executive Summary](#executive-summary)
-2. [Ablation Study: Single Modality Performance](#ablation-single)
-3. [Ablation Study: Structure Configurations](#ablation-structure)
-4. [Ablation Study: Multi-Modal Combinations](#ablation-multimodal)
-5. [Comparison with Naïve Baseline](#naive-comparison)
-6. [Performance by GO Aspect](#aspect-performance)
-7. [Best Configurations Summary](#best-configs)
-8. [Computational Efficiency](#efficiency)
 
 ## 1. Executive Summary {#executive-summary}
 
