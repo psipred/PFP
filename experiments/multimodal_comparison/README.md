@@ -1,6 +1,6 @@
 # Multi-Modal Gene Ontology Prediction: Comparative Analysis
 
-This repository contains the experimental pipeline for systematically evaluating different feature modalities and their combinations for protein function prediction using Gene Ontology terms.
+Experimental pipeline for systematically evaluating different feature modalities and their combinations for protein function prediction using Gene Ontology terms.
 
 ## Overview
 
@@ -18,15 +18,16 @@ The experiment compares:
 - **Model B**: Text-only baseline
 
 #### Group B: Structure-Only Models  
-- **Model C1**: Radius Graph + One-Hot encoding
+Radius or KNN methods for graph construction, one-hot encoding or esm for node features in the graph representations.
+- **Model C1**: Radius Graph + One-Hot encoding 
 - **Model C2**: Radius Graph + ESM features
 - **Model C3**: k-NN Graph + One-Hot encoding
 - **Model C4**: k-NN Graph + ESM features
 
 #### Group C: Multi-Modal Combinations
-- **Model D**: ESM + Text (MMStie fusion)
-- **Model E**: ESM + Best Structure
-- **Model F**: ESM + Text + Structure (Full model)
+- **Model D**: ESM + Text (Concatenate fusion)
+- **Model E**: ESM + Best Structure (Concatenate fusion)
+- **Model F**: ESM + Text + Structure (Full model concatenate fusion)
 
 ## Setup Instructions
 
