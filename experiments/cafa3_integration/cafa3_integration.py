@@ -294,7 +294,7 @@ class CAFA3ExperimentGenerator:
             configs = [
                 self._create_config(base_config, aspect, info, 'A_ESM_only', ['esm']),
                 self._create_config(base_config, aspect, info, 'B_Text_only', ['text']),
-                self._create_config(base_config, aspect, info, 'C2_Structure', ['structure'], 
+                self._create_config(base_config, aspect, info, 'C_Structure', ['structure'], 
                                   graph_type='radius', radius=10.0),
                 self._create_config(base_config, aspect, info, 'D_ESM_Text', ['esm', 'text']),
                 self._create_config(base_config, aspect, info, 'F_Full_Model', 
@@ -479,7 +479,7 @@ def main():
     
     parser = argparse.ArgumentParser(description="CAFA3 dataset integration")
     parser.add_argument('--action', type=str, required=True,
-                       choices=['prepare', 'embeddings','structures', 'debug', 'train'],
+                       choices=['prepare', 'embeddings','structures', 'debug', 'train', 'generate_ia'],
                        help="Action to perform")
     parser.add_argument('--small-subset', action='store_true',
                        help="Use small subset for testing")
@@ -546,7 +546,21 @@ def main():
             
         print(f"Created {len(experiments)} experiment configurations")
         print(f"Submit with: {base_dir}/scripts/submit_all.sh")
-              
+    # Add this to the main() function in cafa3_integration.py
+
+    elif args.action == 'generate_ia':
+        # Generate Information Accretion files
+        from generate_ia import generate_all_ia_files
+        
+        ia_dir = f"{base_dir}/ia_files"
+        logger.info("Generating Information Accretion files...")
+        
+        ia_files = generate_all_ia_files(
+            cafa3_dir=args.cafa3_dir,
+            output_dir=ia_dir
+        )
+        
+        logger.info(f"IA files generated in {ia_dir}")     
     elif args.action == 'debug':
         # Create small debug dataset
         create_small_debug_dataset(
