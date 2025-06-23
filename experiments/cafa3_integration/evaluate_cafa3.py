@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import logging
-
+import scipy.sparse as ssp          
 # Add cafaeval to path if needed
 sys.path.append('/SAN/bioinf/PFP/PFP')
 
@@ -37,8 +37,8 @@ def run_cafa_evaluation(aspect: str, experiment_dir: str):
     logger.info(f"Preparing ground truth for {aspect}...")
     
     test_names = np.load(data_dir / f"{aspect}_test_names.npy", allow_pickle=True)
-    test_labels_sparse = cafaeval.ssp.load_npz(data_dir / f"{aspect}_test_labels.npz")
-    
+    test_labels_sparse = ssp.load_npz(data_dir / f"{aspect}_test_labels.npz")
+
     import json
     with open(data_dir / f"{aspect}_go_terms.json", 'r') as f:
         go_terms = json.load(f)
@@ -48,9 +48,13 @@ def run_cafa_evaluation(aspect: str, experiment_dir: str):
     with open(gt_file, 'w') as f:
         for i, protein_id in enumerate(test_names):
             row = test_labels_sparse.getrow(i)
-            for j in row.indices:
-                if row.data[j] > 0:  # Only positive annotations
-                    f.write(f"{protein_id}\t{go_terms[j]}\n")
+            for col_id, val in zip(row.indices, row.data):
+                if val > 0:
+                    f.write(f"{protein_id}\t{go_terms[col_id]}\n")
+
+            # for j in row.indices:
+            #     if row.data[j] > 0:  # Only positive annotations
+            #         f.write(f"{protein_id}\t{go_terms[j]}\n")
     
     logger.info(f"Running CAFA evaluation for {aspect}...")
     
