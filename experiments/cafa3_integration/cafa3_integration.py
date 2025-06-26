@@ -66,7 +66,8 @@ class CAFA3DatasetPreparer:
     
     def prepare_dataset(self):
         """Prepare complete CAFA3 dataset."""
-        
+            # Store statistics for final report
+        dataset_stats = {}
         for aspect in ['BPO', 'CCO', 'MFO']:
             logger.info(f"\nProcessing {aspect}...")
             
@@ -92,7 +93,304 @@ class CAFA3DatasetPreparer:
             
             # Create dataset info
             self._create_dataset_info(aspect, go_columns)
+
+
+                        # Collect statistics for report
+            dataset_stats[aspect] = {
+                'train': train_df,
+                'valid': val_df,
+                'test': test_df,
+                'go_terms': go_columns
+            }
+            # Generate comprehensive evaluation report
+            self._generate_evaluation_report(dataset_stats)
+
+    def _generate_evaluation_report(self, dataset_stats: Dict):
+        """Generate comprehensive evaluation report for CAFA3 dataset."""
+        
+        logger.info("\n" + "="*80)
+        logger.info("CAFA3 DATASET EVALUATION REPORT")
+        logger.info("="*80)
+        
+        # Initialize counters
+        total_stats = {
+            'train': {'proteins': set(), 'terms': 0},
+            'valid': {'proteins': set(), 'terms': 0},
+            'test': {'proteins': set(), 'terms': 0}
+        }
+        
+        aspect_stats = {}
+        
+        # Collect statistics for each aspect
+        for aspect in ['MFO', 'CCO', 'BPO']:
+            if aspect not in dataset_stats:
+                continue
+                
+            data = dataset_stats[aspect]
+            go_terms = data['go_terms']
             
+            aspect_stats[aspect] = {
+                'train': {
+                    'proteins': len(data['train']),
+                    'protein_ids': set(data['train']['proteins'].values),
+                    'terms': len(go_terms),
+                    'annotations': (data['train'][go_terms] > 0).sum().sum(),
+                    'avg_terms_per_protein': (data['train'][go_terms] > 0).sum(axis=1).mean(),
+                    'avg_proteins_per_term': (data['train'][go_terms] > 0).sum(axis=0).mean()
+                },
+                'valid': {
+                    'proteins': len(data['valid']),
+                    'protein_ids': set(data['valid']['proteins'].values),
+                    'terms': len(go_terms),
+                    'annotations': (data['valid'][go_terms] > 0).sum().sum(),
+                    'avg_terms_per_protein': (data['valid'][go_terms] > 0).sum(axis=1).mean(),
+                    'avg_proteins_per_term': (data['valid'][go_terms] > 0).sum(axis=0).mean()
+                },
+                'test': {
+                    'proteins': len(data['test']),
+                    'protein_ids': set(data['test']['proteins'].values),
+                    'terms': len(go_terms),
+                    'annotations': (data['test'][go_terms] > 0).sum().sum(),
+                    'avg_terms_per_protein': (data['test'][go_terms] > 0).sum(axis=1).mean(),
+                    'avg_proteins_per_term': (data['test'][go_terms] > 0).sum(axis=0).mean()
+                }
+            }
+            
+            # Update totals with unique proteins
+            for split in ['train', 'valid', 'test']:
+                total_stats[split]['proteins'].update(aspect_stats[aspect][split]['protein_ids'])
+                total_stats[split]['terms'] += aspect_stats[aspect][split]['terms']
+        
+        # Convert protein sets to counts
+        for split in ['train', 'valid', 'test']:
+            total_stats[split]['unique_proteins'] = len(total_stats[split]['proteins'])
+        
+        # Print formatted report
+        self._print_formatted_report(aspect_stats, total_stats)
+        
+        # Analyze protein overlap between aspects
+        self._analyze_protein_overlap(aspect_stats)
+        
+        # Generate additional analyses
+        self._analyze_label_distribution(dataset_stats)
+        self._analyze_sequence_lengths(dataset_stats)
+        self._analyze_term_frequency(dataset_stats)
+        
+        # Save report to file
+        report_path = self.output_dir / "dataset_evaluation_report.txt"
+        with open(report_path, 'w') as f:
+            f.write(self._generate_report_text(aspect_stats, total_stats, dataset_stats))
+        
+        logger.info(f"\nReport saved to: {report_path}")
+
+    def _print_formatted_report(self, aspect_stats: Dict, total_stats: Dict):
+        """Print formatted evaluation report."""
+        
+        # Table 1: Protein counts (per aspect)
+        print("\n1. PROTEIN COUNTS PER ASPECT")
+        print("-" * 80)
+        print(f"{'Split':<15} | {'MFO':<10} {'CCO':<10} {'BPO':<10} | {'Unique Total':<15}")
+        print("-" * 80)
+        
+        for split in ['train', 'valid', 'test']:
+            mfo_count = aspect_stats.get('MFO', {}).get(split, {}).get('proteins', 0)
+            cco_count = aspect_stats.get('CCO', {}).get(split, {}).get('proteins', 0)
+            bpo_count = aspect_stats.get('BPO', {}).get(split, {}).get('proteins', 0)
+            total = total_stats[split]['unique_proteins']
+            
+            print(f"{split.capitalize():<15} | {mfo_count:<10} {cco_count:<10} {bpo_count:<10} | {total:<15}")
+        
+        # Table 2: GO Term counts
+        print("\n2. GO TERM COUNTS")
+        print("-" * 80)
+        print(f"{'Aspect':<15} | {'Terms':<10} {'Train Ann.':<15} {'Valid Ann.':<15} {'Test Ann.':<15}")
+        print("-" * 80)
+        
+        total_terms = 0
+        total_annotations = {'train': 0, 'valid': 0, 'test': 0}
+        
+        for aspect in ['MFO', 'CCO', 'BPO']:
+            if aspect in aspect_stats:
+                terms = aspect_stats[aspect]['train']['terms']
+                train_ann = aspect_stats[aspect]['train']['annotations']
+                valid_ann = aspect_stats[aspect]['valid']['annotations']
+                test_ann = aspect_stats[aspect]['test']['annotations']
+                
+                total_terms += terms
+                total_annotations['train'] += train_ann
+                total_annotations['valid'] += valid_ann
+                total_annotations['test'] += test_ann
+                
+                print(f"{aspect:<15} | {terms:<10} {train_ann:<15} {valid_ann:<15} {test_ann:<15}")
+        
+        print("-" * 80)
+        print(f"{'Total':<15} | {total_terms:<10} {total_annotations['train']:<15} "
+            f"{total_annotations['valid']:<15} {total_annotations['test']:<15}")
+        
+        # Table 3: Statistics per aspect
+        print("\n3. DETAILED STATISTICS")
+        print("-" * 80)
+        
+        for aspect in ['MFO', 'CCO', 'BPO']:
+            if aspect not in aspect_stats:
+                continue
+                
+            print(f"\n{aspect}:")
+            print(f"  Training set:")
+            print(f"    - Proteins: {aspect_stats[aspect]['train']['proteins']:,}")
+            print(f"    - Annotations: {aspect_stats[aspect]['train']['annotations']:,}")
+            print(f"    - Avg terms/protein: {aspect_stats[aspect]['train']['avg_terms_per_protein']:.2f}")
+            print(f"    - Avg proteins/term: {aspect_stats[aspect]['train']['avg_proteins_per_term']:.2f}")
+            
+            print(f"  Validation set:")
+            print(f"    - Proteins: {aspect_stats[aspect]['valid']['proteins']:,}")
+            print(f"    - Annotations: {aspect_stats[aspect]['valid']['annotations']:,}")
+            print(f"    - Avg terms/protein: {aspect_stats[aspect]['valid']['avg_terms_per_protein']:.2f}")
+            
+            print(f"  Test set:")
+            print(f"    - Proteins: {aspect_stats[aspect]['test']['proteins']:,}")
+            print(f"    - Annotations: {aspect_stats[aspect]['test']['annotations']:,}")
+            print(f"    - Avg terms/protein: {aspect_stats[aspect]['test']['avg_terms_per_protein']:.2f}")
+
+    def _analyze_protein_overlap(self, aspect_stats: Dict):
+        """Analyze protein overlap between aspects."""
+        
+        print("\n4. PROTEIN OVERLAP BETWEEN ASPECTS")
+        print("-" * 80)
+        
+        for split in ['train', 'valid', 'test']:
+            print(f"\n{split.capitalize()} set:")
+            
+            # Get protein sets for each aspect
+            mfo_proteins = aspect_stats.get('MFO', {}).get(split, {}).get('protein_ids', set())
+            cco_proteins = aspect_stats.get('CCO', {}).get(split, {}).get('protein_ids', set())
+            bpo_proteins = aspect_stats.get('BPO', {}).get(split, {}).get('protein_ids', set())
+            
+            # Calculate overlaps
+            mfo_cco = len(mfo_proteins & cco_proteins)
+            mfo_bpo = len(mfo_proteins & bpo_proteins)
+            cco_bpo = len(cco_proteins & bpo_proteins)
+            all_three = len(mfo_proteins & cco_proteins & bpo_proteins)
+            
+            # Calculate exclusive proteins
+            mfo_only = len(mfo_proteins - cco_proteins - bpo_proteins)
+            cco_only = len(cco_proteins - mfo_proteins - bpo_proteins)
+            bpo_only = len(bpo_proteins - mfo_proteins - cco_proteins)
+            
+            print(f"  Proteins with annotations in:")
+            print(f"    - MFO only: {mfo_only}")
+            print(f"    - CCO only: {cco_only}")
+            print(f"    - BPO only: {bpo_only}")
+            print(f"    - MFO & CCO: {mfo_cco}")
+            print(f"    - MFO & BPO: {mfo_bpo}")
+            print(f"    - CCO & BPO: {cco_bpo}")
+            print(f"    - All three: {all_three}")
+            
+            # Verify total
+            total_unique = len(mfo_proteins | cco_proteins | bpo_proteins)
+            print(f"    - Total unique proteins: {total_unique}")
+    def _analyze_label_distribution(self, dataset_stats: Dict):
+            """Analyze label distribution across splits."""
+            
+            print("\n4. LABEL DISTRIBUTION ANALYSIS")
+            print("-" * 80)
+            
+            for aspect in ['MFO', 'CCO', 'BPO']:
+                if aspect not in dataset_stats:
+                    continue
+                    
+                print(f"\n{aspect}:")
+                
+                go_terms = dataset_stats[aspect]['go_terms']
+                
+                # Calculate sparsity
+                for split in ['train', 'valid', 'test']:
+                    df = dataset_stats[aspect][split]
+                    labels = df[go_terms].values
+                    
+                    n_positive = (labels > 0).sum()
+                    n_total = labels.size
+                    sparsity = 1 - (n_positive / n_total)
+                    
+                    # Calculate per-term statistics
+                    terms_with_annotations = (labels.sum(axis=0) > 0).sum()
+                    max_annotations_per_term = labels.sum(axis=0).max()
+                    min_annotations_per_term = labels.sum(axis=0)[labels.sum(axis=0) > 0].min() if terms_with_annotations > 0 else 0
+                    
+                    print(f"  {split.capitalize()}:")
+                    print(f"    - Sparsity: {sparsity:.4f}")
+                    print(f"    - Terms with annotations: {terms_with_annotations}/{len(go_terms)}")
+                    print(f"    - Max annotations per term: {max_annotations_per_term}")
+                    print(f"    - Min annotations per term: {min_annotations_per_term}")
+
+    def _analyze_sequence_lengths(self, dataset_stats: Dict):
+            """Analyze protein sequence length distribution."""
+            
+            print("\n5. SEQUENCE LENGTH ANALYSIS")
+            print("-" * 80)
+            
+            for aspect in ['MFO', 'CCO', 'BPO']:
+                if aspect not in dataset_stats:
+                    continue
+                    
+                print(f"\n{aspect}:")
+                
+                all_lengths = []
+                for split in ['train', 'valid', 'test']:
+                    df = dataset_stats[aspect][split]
+                    lengths = df['sequences'].str.len().values
+                    all_lengths.extend(lengths)
+                    
+                    print(f"  {split.capitalize()}:")
+                    print(f"    - Mean length: {np.mean(lengths):.1f}")
+                    print(f"    - Median length: {np.median(lengths):.1f}")
+                    print(f"    - Min length: {np.min(lengths)}")
+                    print(f"    - Max length: {np.max(lengths)}")
+                    print(f"    - Std dev: {np.std(lengths):.1f}")
+
+    def _analyze_term_frequency(self, dataset_stats: Dict):
+            """Analyze GO term frequency distribution."""
+            
+            print("\n6. GO TERM FREQUENCY ANALYSIS")
+            print("-" * 80)
+            
+            for aspect in ['MFO', 'CCO', 'BPO']:
+                if aspect not in dataset_stats:
+                    continue
+                    
+                print(f"\n{aspect}:")
+                
+                go_terms = dataset_stats[aspect]['go_terms']
+                train_df = dataset_stats[aspect]['train']
+                
+                # Calculate term frequencies in training set
+                term_frequencies = train_df[go_terms].sum(axis=0).values
+                
+                # Find rare and common terms
+                rare_terms = (term_frequencies < 10).sum()
+                common_terms = (term_frequencies >= 100).sum()
+                
+                print(f"  Term frequency distribution (training set):")
+                print(f"    - Total terms: {len(go_terms)}")
+                print(f"    - Rare terms (<10 annotations): {rare_terms}")
+                print(f"    - Common terms (>=100 annotations): {common_terms}")
+                print(f"    - Most frequent term: {term_frequencies.max()} annotations")
+                print(f"    - Least frequent term: {term_frequencies[term_frequencies > 0].min()} annotations")
+
+    def _generate_report_text(self, aspect_stats: Dict, total_stats: Dict, dataset_stats: Dict) -> str:
+            """Generate complete report text for saving."""
+            
+            import io
+            from contextlib import redirect_stdout
+            
+            f = io.StringIO()
+            with redirect_stdout(f):
+                self._print_formatted_report(aspect_stats, total_stats)
+                self._analyze_label_distribution(dataset_stats)
+                self._analyze_sequence_lengths(dataset_stats)
+                self._analyze_term_frequency(dataset_stats)
+            
+            return f.getvalue()        
     def _check_data_leakage(self, train_df: pd.DataFrame, val_df: pd.DataFrame, 
                            test_df: pd.DataFrame, aspect: str):
         """Check for data leakage between splits."""
@@ -322,7 +620,7 @@ class CAFA3ExperimentGenerator:
         import copy
         config = copy.deepcopy(base_config)
         
-        config['experiment_name'] = f"CAFA3_{model_name}_{aspect}"
+        config['experiment_name'] = f"{model_name}_{aspect}"
         config['dataset']['train_names'] = str(self.data_dir / f"{aspect}_train_names.npy")
         config['dataset']['train_labels'] = str(self.data_dir / f"{aspect}_train_labels.npz")
         config['dataset']['valid_names'] = str(self.data_dir / f"{aspect}_valid_names.npy")
@@ -499,7 +797,7 @@ def main():
         )
         preparer.prepare_dataset()
     elif args.action == 'embeddings':
-        # Generate ESM embeddings
+        # Generate ESM embeddings   
         generator = ESMEmbeddingGenerator(
             data_dir=f"{base_dir}/data",
             output_dir="/SAN/bioinf/PFP/embeddings/cafa3/esm"
