@@ -99,7 +99,7 @@ class MultiModalDataset(Dataset):
                 features_dict['esm'] = torch.from_numpy(embedding.astype(np.float32))
             else:
                 # Return zeros if file not found
-                exit("esm zeros")
+                # exit("esm zeros")
                 features_dict['esm'] = torch.zeros(1280)
         
         # Load text features
@@ -109,6 +109,7 @@ class MultiModalDataset(Dataset):
                 data = np.load(text_path, allow_pickle=True)
                 if isinstance(data, np.ndarray) and data.dtype == object:
                     data = data.item()
+
                 
                 if isinstance(data, dict) and 'embedding' in data:
                     embedding = data['embedding']
@@ -437,10 +438,22 @@ def train_epoch(model, train_loader, optimizer, criterion, metric_tracker, devic
                         features[feat_name][key] = features[feat_name][key].to(device)
             elif feat_name == 'baseline':
                 # Handle baseline features
+
                 features = features.to(device)
+
+            # elif feat_name == 'text':
+            #     features = features[feat_name].to(device)
+
+
             elif features is not None:
+
+                # print(features)
+                # features = features[feat_name].to(device)
+                # exit(features)
                 features[feat_name] = features[feat_name].to(device)
-        
+
+
+
         # Forward pass
         optimizer.zero_grad()
         
@@ -448,9 +461,14 @@ def train_epoch(model, train_loader, optimizer, criterion, metric_tracker, devic
             # Single modality
             # feat_name = list(features.keys())[0]
             # logits = model(features[feat_name])
+            # exit(features)
+
+            features = features[feat_name].to(device)
+
             logits = model(features)
         else:
             # Multi-modal or structure
+
             logits = model(features)
         
         loss = criterion(logits, labels)
@@ -499,6 +517,8 @@ def validate(model, valid_loader, criterion, metric_tracker, device, experiment_
             if experiment_type == 'baseline':
                 # feat_name = list(features.keys())[0]
                 # logits = model(features[feat_name])
+
+                features = features[feat_name].to(device)
                 logits = model(features)
             else:
                 logits = model(features)

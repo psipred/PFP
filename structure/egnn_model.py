@@ -313,7 +313,7 @@ def collate_graph_batch(batch_list):
         'node_pos': torch.cat(batch_data['node_pos'], dim=0),
         'batch': torch.tensor(batch_assignment, dtype=torch.long)
     }
-    
+
     if labels is not None:
         return names, batch_tensor_data, labels
     else:

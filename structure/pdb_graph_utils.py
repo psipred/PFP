@@ -210,7 +210,7 @@ class StructureGraphDataset(torch.utils.data.Dataset):
         k: int = 10,
         radius: float = 10.0,
         use_esm_features: bool = False,
-        cache_graphs: bool = False,
+        cache_graphs: bool = True,
         name: str = "StructureGraphDataset"
     ):
         self.pdb_processor = PDBProcessor(pdb_dir)
@@ -221,7 +221,7 @@ class StructureGraphDataset(torch.utils.data.Dataset):
         self.graph_cache = {}
         
         # Load names
-        self.names = np.load(names_npy)
+        self.names = np.load(names_npy, allow_pickle=True)
         
         # Load labels if provided
         self.labels = None
@@ -266,8 +266,9 @@ class StructureGraphDataset(torch.utils.data.Dataset):
         # Check cache
         if self.cache_graphs and name in self.graph_cache:
             graph_data = self.graph_cache[name]
-        else:
 
+        else:
+            
             # Process PDB
             pdb_path = self.pdb_processor.pdb_dir / f"AF-{name}-F1-model_v4.pdb"
             seq, ca_coords, _ = self.pdb_processor.extract_sequence_and_coords(pdb_path)
@@ -292,7 +293,10 @@ class StructureGraphDataset(torch.utils.data.Dataset):
             }
             
             if self.cache_graphs:
+
+
                 self.graph_cache[name] = graph_data
+
 
                 
         # Add label if available
@@ -321,7 +325,8 @@ class StructureGraphDataset(torch.utils.data.Dataset):
         
         # Ensure correct length
         if embeddings.shape[0] != seq_len:
-            logger.warning(f"ESM embedding length mismatch for {name}: {embeddings.shape[0]} vs {seq_len}")
+
+            # logger.warning(f"ESM embedding length mismatch for {name}: {embeddings.shape[0]} vs {seq_len}")
             # Truncate or pad as needed
             if embeddings.shape[0] > seq_len:
                 embeddings = embeddings[:seq_len]
