@@ -517,6 +517,8 @@ def train_cafa3_model(config_path: str):
     
     for epoch in range(1, cfg['optim']['epochs'] + 1):
         logger.info(f"\nEpoch {epoch}/{cfg['optim']['epochs']}")
+
+        
         
         # Train
         

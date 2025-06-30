@@ -71,6 +71,8 @@ def extract_model_best_performance(results_df, model_name):
         return None
     
     best_metrics = {}
+
+    
     
     # Find best F-measure
     if 'f' in model_results.columns:
