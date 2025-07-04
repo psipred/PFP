@@ -154,6 +154,8 @@ class MultiModalFusionModel(torch.nn.Module):
         # Feature dimensions
         self.feature_dims = {
             'esm': 1280,
+            'prostt5': 1024,
+            'prost5': 1024,
             'text': 768,
             'structure': 512  # After EGNN encoding
         }
@@ -515,13 +517,24 @@ def validate(model, valid_loader, criterion, metric_tracker, device, experiment_
             
             # Forward pass
             if experiment_type == 'baseline':
-                # feat_name = list(features.keys())[0]
-                # logits = model(features[feat_name])
-
-                features = features[feat_name].to(device)
-                logits = model(features)
+                # Single‑modality baseline uses one tensor
+                feat_name = list(features.keys())[0]
+                logits = model(features[feat_name].to(device))
             else:
-                logits = model(features)
+                # ----- Dual‑stream aware forward -----
+                if (len(features) == 2):                              
+                    # Keep key order deterministic (Python ≥3.7 preserves insertion order)
+                    feat1, feat2 = list(features)
+                    input1 = features[feat1].to(device)
+                    input2 = features[feat2].to(device)
+
+                    # Some fusion models return (logits, aux_outputs)
+                    out = model(input1, input2)
+                    logits = out[0] if isinstance(out, (tuple, list)) else out
+                else:
+                    # Standard single‑dict models
+                    logits = model(features)
+                # -------------------------------------
             
             loss = criterion(logits, labels)
             

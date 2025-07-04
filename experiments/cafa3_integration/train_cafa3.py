@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Training script for CAFA3 experiments with complete multi-modal support
+Including ProtT5 and ProstT5 embeddings
 Location: /SAN/bioinf/PFP/PFP/experiments/cafa3_integration/train_cafa3.py
 """
 
@@ -10,7 +11,6 @@ import yaml
 import torch
 import numpy as np
 from pathlib import Path
-import logging
 import logging
 from typing import Dict, Optional, List, Any
 from torch.utils.data import DataLoader, Dataset
@@ -27,6 +27,7 @@ from fusion_models import (
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 # Add project root
 sys.path.append('/SAN/bioinf/PFP/PFP')
 
@@ -46,7 +47,7 @@ from Network.model_utils import EarlyStop
 
 
 class CAFA3MultiModalDataset(Dataset):
-    """Unified dataset for CAFA3 supporting all modalities."""
+    """Unified dataset for CAFA3 supporting all modalities including T5-based models."""
     
     def __init__(self,
                  names_file: str,
@@ -71,6 +72,8 @@ class CAFA3MultiModalDataset(Dataset):
         self.esm_dir = Path(embeddings_dir.get('esm', ''))
         self.text_dir = Path(embeddings_dir.get('text', ''))
         self.struct_dir = Path(embeddings_dir.get('structure', ''))
+        self.prott5_dir = Path(embeddings_dir.get('prott5', ''))
+        self.prostt5_dir = Path(embeddings_dir.get('prostt5', ''))
         
         # Initialize structure dataset if needed
         if 'structure' in features and graph_config:
@@ -99,7 +102,7 @@ class CAFA3MultiModalDataset(Dataset):
             
         features_dict = {}
         
-        # Load ESM embeddings
+        # Load ESM embeddings (1280 dim)
         if 'esm' in self.features:
             esm_file = self.esm_dir / f"{name}.npy"
             if esm_file.exists():
@@ -109,10 +112,36 @@ class CAFA3MultiModalDataset(Dataset):
                     emb = emb.mean(axis=0)
                 features_dict['esm'] = torch.from_numpy(emb).float()
             else:
-                # Use zeros as fallback
                 features_dict['esm'] = torch.zeros(1280)
                 
-        # Load text embeddings
+        # Load ProtT5 embeddings (1024 dim)
+        if 'prott5' in self.features:
+            prott5_file = self.prott5_dir / f"{name}.npy"
+            if prott5_file.exists():
+                data = np.load(prott5_file, allow_pickle=True).item()
+                emb = data['embedding']
+                if emb.ndim == 2:
+                    emb = emb.mean(axis=0)
+                features_dict['prott5'] = torch.from_numpy(emb).float()
+            else:
+                logger.warning(f"ProtT5 embedding not found for {name}")
+                exit(1)
+                
+        # Load ProstT5 embeddings (1024 dim)
+        if 'prostt5' in self.features:
+
+            prostt5_file = self.prostt5_dir / f"{name}.npy"
+            if prostt5_file.exists():
+                data = np.load(prostt5_file, allow_pickle=True).item()
+                emb = data['embedding']
+                if emb.ndim == 2:
+                    emb = emb.mean(axis=0)
+                features_dict['prostt5'] = torch.from_numpy(emb).float()
+            else:
+                logger.warning(f"ProstT5 embedding not found for {name}")
+                features_dict['prostt5'] = torch.zeros(1024)
+                
+        # Load text embeddings (768 dim)
         if 'text' in self.features:
             text_file = self.text_dir / f"{name}.npy"
             if text_file.exists():
@@ -120,10 +149,9 @@ class CAFA3MultiModalDataset(Dataset):
                 emb = data.get('embedding', data)
                 if isinstance(emb, np.ndarray) and emb.ndim == 2:
                     emb = emb.mean(axis=0)
-
                 features_dict['text'] = torch.from_numpy(emb).float()
             else:
-                exit(name)
+                logger.warning(f"Text embedding not found for {name}")
                 features_dict['text'] = torch.zeros(768)
                 
         # Load structure data
@@ -137,10 +165,21 @@ class CAFA3MultiModalDataset(Dataset):
                 
         # Cache if enabled
         if self.use_cache:
-
             self._cache[idx] = features_dict
             
         return name, features_dict, label
+
+
+def get_embedding_dim(feature: str) -> int:
+    """Get embedding dimension for a feature type."""
+    dim_map = {
+        'esm': 1280,
+        'prott5': 1024,
+        'prostt5': 1024,
+        'text': 768,
+        'structure': 512  # Output dim from EGNN
+    }
+    return dim_map.get(feature, 1024)
 
 
 def create_cafa3_model(cfg: Dict, device: torch.device) -> torch.nn.Module:
@@ -152,11 +191,9 @@ def create_cafa3_model(cfg: Dict, device: torch.device) -> torch.nn.Module:
     if len(features) == 1:
         # Single modality model
         feature = features[0]
-        if feature == 'esm':
-            input_dim = 1280
-        elif feature == 'text':
-            input_dim = 768
-        elif feature == 'structure':
+        input_dim = get_embedding_dim(feature)
+        
+        if feature == 'structure':
             # Use structure-specific model
             from structure.egnn_model import StructureGOClassifier
             
@@ -183,10 +220,8 @@ def create_cafa3_model(cfg: Dict, device: torch.device) -> torch.nn.Module:
                 classifier_config=classifier_config,
                 use_mmstie_fusion=False
             ).to(device)
-        else:
-            raise ValueError(f"Unknown feature: {feature}")
             
-        # Standard classifier for ESM/text
+        # Standard classifier for sequence/text embeddings
         return BaseGOClassifier(
             input_dim=input_dim,
             output_dim=output_dim,
@@ -195,99 +230,96 @@ def create_cafa3_model(cfg: Dict, device: torch.device) -> torch.nn.Module:
         ).to(device)
         
     else:
-        # Multi-modal model
-        return MultiModalFusionModel(
-            features=features,
-            fusion_method=cfg['model'].get('fusion_method', 'concat'),
-            output_dim=output_dim,
-            graph_config=cfg.get('graph', None),
-            device=device
-        ).to(device)
-
-
-
-def create_model_from_config(cfg, device):
-    """Create model based on configuration."""
-    features = cfg['dataset']['features']
-    output_dim = cfg['model']['output_dim']
-    
-    if len(features) == 1:
-        # Single modality
-        feature = features[0]
-        input_dim = 1280 if feature == 'esm' else 768
-        
-        return BaseGOClassifier(
-            input_dim=input_dim,
-            output_dim=output_dim,
-            projection_dim=1024,
-            hidden_dim=512
-        ).to(device)
-    
-    elif 'esm' in features and 'text' in features and len(features) == 2:
-        # ESM + Text fusion
+        # Multi-modal model - need to create fusion model with correct dimensions
         fusion_type = cfg['model'].get('fusion_type', 'concat')
-        
-        if fusion_type == 'concat':
-            # Your existing MultiModalFusionModel
+        print(fusion_type)
+        # For now, extend MultiModalFusionModel to support T5 models
+        # or create custom fusion models
+        if fusion_type == 'concat' or fusion_type == 'mmstie':
             return MultiModalFusionModel(
                 features=features,
-                fusion_method='concat',
+                fusion_method=fusion_type,
                 output_dim=output_dim,
+                graph_config=cfg.get('graph', None),
                 device=device
+                # Pass embedding dimensions
+                # feature_dims={feat: get_embedding_dim(feat) for feat in features}
             ).to(device)
-            
-        elif fusion_type == 'gated':
+        else:
+            # Use the advanced fusion models from fusion_models.py
+            return create_advanced_fusion_model(cfg, device)
+
+
+def create_advanced_fusion_model(cfg: Dict, device: torch.device) -> torch.nn.Module:
+    """Create advanced fusion models for T5-based embeddings."""
+    
+    features = cfg['dataset']['features']
+    output_dim = cfg['model']['output_dim']
+    fusion_type = cfg['model'].get('fusion_type', 'concat')
+    
+    # Get dimensions for each feature
+    feature_dims = {feat: get_embedding_dim(feat) for feat in features}
+    
+    # ------------------------------------------------------------------
+    # Generic support: allow ANY pair of two feature types
+    # ------------------------------------------------------------------
+    if len(features) == 2:
+        feat1, feat2 = features          # order preserved from config
+        dim1 = feature_dims[feat1]
+        dim2 = feature_dims[feat2]
+
+        if fusion_type == 'gated':
             return GatedMultimodalFusion(
-                esm_dim=1280,
-                text_dim=768,
+                # Parameter names kept for backward‑compatibility
+                esm_dim=dim1,
+                text_dim=dim2,
                 hidden_dim=cfg['model'].get('hidden_dim', 512),
                 output_dim=output_dim
             ).to(device)
-            
+
         elif fusion_type == 'moe':
             return AdaptiveMoEFusion(
-                esm_dim=1280,
-                text_dim=768,
+                esm_dim=dim1,
+                text_dim=dim2,
                 hidden_dim=cfg['model'].get('hidden_dim', 512),
                 output_dim=output_dim,
                 num_experts_per_modality=cfg['model'].get('num_experts', 3)
             ).to(device)
-            
+
         elif fusion_type == 'transformer':
             return MultimodalTransformerFusion(
-                esm_dim=1280,
-                text_dim=768,
+                esm_dim=dim1,
+                text_dim=dim2,
                 hidden_dim=cfg['model'].get('hidden_dim', 512),
                 output_dim=output_dim,
                 num_layers=cfg['model'].get('num_layers', 4),
                 num_heads=cfg['model'].get('num_heads', 8)
             ).to(device)
-            
+
         elif fusion_type == 'contrastive':
             return ContrastiveMultimodalFusion(
-                esm_dim=1280,
-                text_dim=768,
+                esm_dim=dim1,
+                text_dim=dim2,
                 hidden_dim=cfg['model'].get('hidden_dim', 512),
                 output_dim=output_dim,
                 temperature=cfg['model'].get('temperature', 0.07)
             ).to(device)
     
-    else:
-        # Full multimodal or other configurations
-        return MultiModalFusionModel(
-            features=features,
-            fusion_method=cfg['model'].get('fusion_method', 'concat'),
-            output_dim=output_dim,
-            graph_config=cfg.get('graph', None),
-            device=device
-        ).to(device)
+    # For other configurations, fall back to concat fusion
+    logger.warning(f"Advanced fusion type '{fusion_type}' not supported for features {features}. Using concat fusion.")
+    return MultiModalFusionModel(
+        features=features,
+        fusion_method='concat',
+        output_dim=output_dim,
+        graph_config=cfg.get('graph', None),
+        device=device
+        # feature_dims=feature_dims
+    ).to(device)
 
-
-# 4. Update the training loop to handle auxiliary outputs:
 
 def train_epoch_with_fusion(model, train_loader, optimizer, criterion, 
                            device, cfg, epoch):
-    """Modified training loop for fusion models."""
+    """Modified training loop for fusion models with T5 support."""
     model.train()
     total_loss = 0
     aux_losses = {}
@@ -304,23 +336,21 @@ def train_epoch_with_fusion(model, train_loader, optimizer, criterion,
             predictions = model(features_input)
             aux_outputs = {}
         else:
-            # Multi-modal
-            esm_features = features.get('esm', None)
-            text_features = features.get('text', None)
-            
-            if esm_features is not None and text_features is not None:
-                esm_features = esm_features.to(device)
-                text_features = text_features.to(device)
+            # Multi-modal - need to handle different combinations
+            model_features = cfg['dataset']['features']
+            # exit(model_features)
+            # Handle dual fusion models
+            if len(model_features) == 2:
+                # Advanced fusion models expecting two inputs
+                feat1, feat2 = model_features
+                input1 = features[feat1].to(device)
+                input2 = features[feat2].to(device)
                 
                 # Get predictions and auxiliary outputs
-                if hasattr(model, 'forward') and model.forward.__code__.co_argcount > 3:
-                    # Model supports auxiliary outputs
-                    predictions, aux_outputs = model(esm_features, text_features)
-                else:
-                    predictions = model({'esm': esm_features, 'text': text_features})
-                    aux_outputs = {}
+
+                predictions, aux_outputs = model(input1, input2)
             else:
-                # Fallback for other configurations
+                # Standard multi-modal fusion
                 for feat_name in features:
                     if features[feat_name] is not None:
                         features[feat_name] = features[feat_name].to(device)
@@ -374,8 +404,9 @@ def train_epoch_with_fusion(model, train_loader, optimizer, criterion,
     
     return total_loss / len(train_loader)
 
+
 def train_cafa3_model(config_path: str):
-    """Train model on CAFA3 dataset."""
+    """Train model on CAFA3 dataset with T5 model support."""
     
     # Load config
     with open(config_path, 'r') as f:
@@ -407,9 +438,11 @@ def train_cafa3_model(config_path: str):
     aspect = cfg['experiment_name'].split('_')[-1]
     data_dir = Path(cfg['dataset']['train_names']).parent
     
-    # Embedding directories
+    # Embedding directories - now includes T5 models
     embeddings_dir = {
         'esm': '/SAN/bioinf/PFP/embeddings/cafa3/esm',
+        'prott5': '/SAN/bioinf/PFP/embeddings/cafa3/prott5',
+        'prostt5': '/SAN/bioinf/PFP/embeddings/cafa3/prostt5',  # Using AA embeddings by default
         'text': '/SAN/bioinf/PFP/embeddings/cafa3/text',
         'structure': '/SAN/bioinf/PFP/embeddings/cafa3/structures'
     }
@@ -441,7 +474,7 @@ def train_cafa3_model(config_path: str):
         collate_fn = collate_graph_batch
         
     else:
-        # Single modality (ESM/text) or multi-modal: use unified dataset
+        # Single modality (ESM/ProtT5/ProstT5/text) or multi-modal: use unified dataset
         train_dataset = CAFA3MultiModalDataset(
             names_file=cfg['dataset']['train_names'],
             labels_file=cfg['dataset']['train_labels'],
@@ -474,7 +507,6 @@ def train_cafa3_model(config_path: str):
         train_dataset,
         batch_size=cfg['dataset'].get('batch_size', 32),
         shuffle=True,
-        # num_workers=cfg['dataset'].get('num_workers', 0),
         collate_fn=collate_fn,
         drop_last=True
     )
@@ -483,7 +515,6 @@ def train_cafa3_model(config_path: str):
         valid_dataset,
         batch_size=cfg['dataset'].get('batch_size', 32),
         shuffle=False,
-        # num_workers=cfg['dataset'].get('num_workers', 0),
         collate_fn=collate_fn
     )
     
@@ -517,15 +548,21 @@ def train_cafa3_model(config_path: str):
     
     for epoch in range(1, cfg['optim']['epochs'] + 1):
         logger.info(f"\nEpoch {epoch}/{cfg['optim']['epochs']}")
-
         
-        
-        # Train
-        
-        train_loss = train_epoch(
-            model, train_loader, optimizer, criterion,
-            metric_tracker, device, experiment_type
-        )
+        # Use appropriate training function based on fusion type
+        fusion_type = cfg['model'].get('fusion_type', 'concat')
+        if fusion_type in ['gated', 'moe', 'transformer', 'contrastive'] and len(features) > 1:
+            # Use specialized training for advanced fusion models
+            train_loss = train_epoch_with_fusion(
+                model, train_loader, optimizer, criterion,
+                device, cfg, epoch
+            )
+        else:
+            # Use standard training
+            train_loss = train_epoch(
+                model, train_loader, optimizer, criterion,
+                metric_tracker, device, experiment_type
+            )
         
         # Validate
         val_metrics = validate(
@@ -596,6 +633,8 @@ def generate_test_predictions(model, cfg, device, output_dir, experiment_type):
     
     embeddings_dir = {
         'esm': '/SAN/bioinf/PFP/embeddings/cafa3/esm',
+        'prott5': '/SAN/bioinf/PFP/embeddings/cafa3/prott5',
+        'prostt5': '/SAN/bioinf/PFP/embeddings/cafa3/prostt5',
         'text': '/SAN/bioinf/PFP/embeddings/cafa3/text',
         'structure': '/SAN/bioinf/PFP/embeddings/cafa3/structures'
     }
@@ -625,7 +664,6 @@ def generate_test_predictions(model, cfg, device, output_dir, experiment_type):
         test_dataset,
         batch_size=cfg['dataset'].get('batch_size', 32),
         shuffle=False,
-        # num_workers=0,
         collate_fn=collate_fn
     )
     
@@ -637,34 +675,40 @@ def generate_test_predictions(model, cfg, device, output_dir, experiment_type):
     with torch.no_grad():
         for batch in tqdm(test_loader, desc="Generating predictions"):
             if len(batch) == 3:
-                names, features, _ = batch
+                names, features_batch, _ = batch
             else:
-                names, features = batch
+                names, features_batch = batch
                 
             # Handle different input types
             if experiment_type == 'baseline':
-                # Single modality (ESM/text)
-                feat_name = cfg['dataset']['features'][0]
-                features = features[feat_name].to(device)
-
-
-                logits = model(features)
+                # Single modality
+                feat_name = features[0]
+                features_input = features_batch[feat_name].to(device)
+                logits = model(features_input)
             elif experiment_type == 'structure':
                 # Structure only
-                for key in features:
-                    if isinstance(features[key], torch.Tensor):
-                        features[key] = features[key].to(device)
-                logits = model(features)
+                for key in features_batch:
+                    if isinstance(features_batch[key], torch.Tensor):
+                        features_batch[key] = features_batch[key].to(device)
+                logits = model(features_batch)
             else:
                 # Multi-modal
-                for feat_name in features:
-                    if feat_name == 'structure' and features[feat_name] is not None:
-                        for key in features[feat_name]:
-                            if isinstance(features[feat_name][key], torch.Tensor):
-                                features[feat_name][key] = features[feat_name][key].to(device)
-                    elif features[feat_name] is not None:
-                        features[feat_name] = features[feat_name].to(device)
-                logits = model(features)
+                # Handle advanced fusion models
+                if len(features) == 2:
+                    feat1, feat2 = features
+                    input1 = features_batch[feat1].to(device)
+                    input2 = features_batch[feat2].to(device)
+                    logits, _ = model(input1, input2)
+                else:
+                    # Standard multi-modal
+                    for feat_name in features_batch:
+                        if feat_name == 'structure' and features_batch[feat_name] is not None:
+                            for key in features_batch[feat_name]:
+                                if isinstance(features_batch[feat_name][key], torch.Tensor):
+                                    features_batch[feat_name][key] = features_batch[feat_name][key].to(device)
+                        elif features_batch[feat_name] is not None:
+                            features_batch[feat_name] = features_batch[feat_name].to(device)
+                    logits = model(features_batch)
             
             predictions = torch.sigmoid(logits).cpu().numpy()
             all_predictions.append(predictions)

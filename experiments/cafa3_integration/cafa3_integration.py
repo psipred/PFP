@@ -18,6 +18,7 @@ import json
 import requests
 import scipy.sparse as ssp
 import time
+import re
 
 
 
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class CAFA3DatasetPreparer:
+
     """Prepare CAFA3 dataset for multi-modal GO prediction."""
     
     def __init__(self, 
@@ -483,7 +485,329 @@ class CAFA3DatasetPreparer:
             
         with open(self.output_dir / f"{aspect}_info.json", 'w') as f:
             json.dump(info, f, indent=2)
+class ProstT5EmbeddingGenerator:
+    """Generate ProstT5 embeddings for CAFA3 proteins.
+    
+    Uses the same truncation settings as ESMEmbeddingGenerator (max_length=1024).
+    Sequences longer than ~1022 amino acids will be truncated.
+    """
+    
+    def __init__(self, 
+                 data_dir: str,
+                 output_dir: str,
+                 model_name: str = "Rostlab/ProstT5",
+                 batch_size: int = 4,
+                 embedding_type: str = "AA",  # "AA" for amino acids, "3Di" for structures
+                 max_length: int = 1024):  # Same as ESM
+        
+        self.data_dir = Path(data_dir)
+        self.output_dir = Path(output_dir)
+        self.model_name = model_name
+        self.batch_size = batch_size
+        self.embedding_type = embedding_type
+        self.max_length = max_length
+        
+        # Create output directory
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+    def _preprocess_sequences(self, sequences: List[str]) -> List[str]:
+        """Preprocess sequences for ProstT5."""
+        processed_sequences = []
+        
+        for seq in sequences:
+            # Replace rare/ambiguous amino acids with X
+            seq = re.sub(r"[UZOB]", "X", seq)
+            
+            # Add whitespace between all amino acids
+            seq = " ".join(list(seq))
+            
+            # Add appropriate prefix based on embedding type
+            if self.embedding_type == "AA":
+                seq = "<AA2fold> " + seq
+            elif self.embedding_type == "3Di":
+                # For 3Di, sequences should be lowercase
+                seq = seq.lower()
+                seq = "<fold2AA> " + seq
+            
+            processed_sequences.append(seq)
+            
+        return processed_sequences
+    
+    def generate_embeddings(self):
+        """Generate ProstT5 embeddings for all proteins."""
+        from transformers import T5Tokenizer, T5EncoderModel
+        
+        # Load model and tokenizer
+        logger.info(f"Loading ProstT5 model: {self.model_name}")
+        tokenizer = T5Tokenizer.from_pretrained(self.model_name, do_lower_case=False)
+        model = T5EncoderModel.from_pretrained(self.model_name)
+        
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = model.to(device)
+        
+        # Use half precision on GPU, full precision on CPU
+        if device.type == 'cpu':
+            model.float()
+        else:
+            model.half()
+            
+        model.eval()
+        
+        # Process each aspect and split
+        for aspect in ['BPO', 'CCO', 'MFO']:
+            for split in ['train', 'valid', 'test']:
+                seq_file = self.data_dir / f"{aspect}_{split}_sequences.json"
+                if not seq_file.exists():
+                    logger.warning(f"Sequence file not found: {seq_file}")
+                    continue
+                    
+                with open(seq_file, 'r') as f:
+                    sequences = json.load(f)
+                    
+                logger.info(f"Generating ProstT5 embeddings for {aspect} {split}: {len(sequences)} proteins")
+                
+                # Process in batches
+                protein_ids = list(sequences.keys())
+                
+                for i in tqdm(range(0, len(protein_ids), self.batch_size), desc=f"{aspect} {split}"):
+                    batch_ids = protein_ids[i:i+self.batch_size]
+                    batch_seqs = [sequences[pid] for pid in batch_ids]
+                    
+                    # Skip if embeddings already exist
+                    if all((self.output_dir / f"{pid}.npy").exists() for pid in batch_ids):
+                        continue
+                    
+                    try:
+                        # Preprocess sequences
+                        processed_seqs = self._preprocess_sequences(batch_seqs)
+                        
+                        # Check if any sequences will be truncated
+                        max_seq_len = max(len(seq) for seq in batch_seqs)
+                        if max_seq_len > self.max_length - 2:  # -2 for special tokens
+                            logger.warning(f"Some sequences will be truncated. Max length: {max_seq_len}, limit: {self.max_length}")
+                        
+                        # Tokenize with same truncation as ESM
+                        ids = tokenizer.batch_encode_plus(
+                            processed_seqs,
+                            add_special_tokens=True,
+                            padding="longest",
+                            truncation=True,
+                            max_length=self.max_length,
+                            return_tensors='pt'
+                        ).to(device)
+                        
+                        # Generate embeddings
+                        with torch.no_grad():
+                            outputs = model(
+                                ids.input_ids,
+                                attention_mask=ids.attention_mask
+                            )
+                            embeddings = outputs.last_hidden_state
+                        
+                        # Extract and save embeddings for each protein
+                        for idx, (pid, seq) in enumerate(zip(batch_ids, batch_seqs)):
+                            # Calculate actual sequence length (after preprocessing)
+                            seq_len = len(seq)  # Original sequence length
+                            
+                            # Get the actual length of the tokenized sequence (excluding padding)
+                            # This accounts for truncation
+                            attention_mask_seq = ids.attention_mask[idx]
+                            actual_token_len = attention_mask_seq.sum().item()
+                            
+                            # Extract embeddings, skipping special tokens and prefix
+                            # +1 for start token, +1 for prefix token ("<AA2fold>" or "<fold2AA>")
+                            start_idx = 2
+                            # Ensure we don't go beyond the actual tokenized length
+                            # -1 for end token
+                            end_idx = min(start_idx + seq_len, actual_token_len - 1)
+                            
+                            # Get embeddings for actual sequence
+                            seq_embeddings = embeddings[idx, start_idx:end_idx]
+                            
+                            # Mean pooling over sequence length
+                            pooled_embedding = seq_embeddings.mean(dim=0).cpu().numpy()
+                            
+                            # Also save per-residue embeddings
+                            per_residue_embeddings = seq_embeddings.cpu().numpy()
+                            
+                            # Save embeddings
+                            embedding_data = {
+                                "name": pid,
+                                "embedding": pooled_embedding,  # Mean pooled embedding
+                                "per_residue_embedding": per_residue_embeddings,  # Per-residue embeddings
+                                "sequence_length": seq_len,
+                                "truncated_length": end_idx - start_idx  # Actual length after truncation
+                            }
+                            
+                            np.save(
+                                self.output_dir / f"{pid}.npy",
+                                embedding_data,
+                                allow_pickle=True
+                            )
+                            
+                    except Exception as e:
+                        logger.error(f"Error processing batch starting at index {i}: {e}")
+                        logger.error(f"Batch IDs: {batch_ids}")
+                        
+        logger.info("ProstT5 embedding generation completed!")
 
+class ProtT5EmbeddingGenerator:
+        
+        """Generate ProtT5 embeddings for CAFA3 proteins.
+        
+        ProtT5 is the base model that ProstT5 was built on. It only handles
+        amino acid sequences (no structure/3Di capabilities).
+        Uses the same truncation settings as ESMEmbeddingGenerator (max_length=1024).
+        """
+        
+        def __init__(self, 
+                    data_dir: str,
+                    output_dir: str,
+                    model_name: str = "Rostlab/prot_t5_xl_uniref50",
+                    batch_size: int = 4,
+                    max_length: int = 1024):  # Same as ESM
+            
+            self.data_dir = Path(data_dir)
+            self.output_dir = Path(output_dir)
+            self.model_name = model_name
+            self.batch_size = batch_size
+            self.max_length = max_length
+            
+            # Create output directory
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            
+        def _preprocess_sequences(self, sequences: List[str]) -> List[str]:
+            """Preprocess sequences for ProtT5."""
+            processed_sequences = []
+            
+            for seq in sequences:
+                # Replace rare/ambiguous amino acids with X
+                seq = re.sub(r"[UZOB]", "X", seq)
+                
+                # Add whitespace between all amino acids (ProtT5 requirement)
+                seq = " ".join(list(seq))
+                
+                processed_sequences.append(seq)
+                
+            return processed_sequences
+        
+        def generate_embeddings(self):
+            """Generate ProtT5 embeddings for all proteins."""
+            from transformers import T5Tokenizer, T5EncoderModel
+            
+            # Load model and tokenizer
+            logger.info(f"Loading ProtT5 model: {self.model_name}")
+            tokenizer = T5Tokenizer.from_pretrained(self.model_name, do_lower_case=False)
+            model = T5EncoderModel.from_pretrained(self.model_name)
+            
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            model = model.to(device)
+            
+            # Use half precision on GPU, full precision on CPU
+            if device.type == 'cpu':
+                model.float()
+            else:
+                model.half()
+                
+            model.eval()
+            
+            # Process each aspect and split
+            for aspect in ['BPO', 'CCO', 'MFO']:
+                for split in ['train', 'valid', 'test']:
+                    seq_file = self.data_dir / f"{aspect}_{split}_sequences.json"
+                    if not seq_file.exists():
+                        logger.warning(f"Sequence file not found: {seq_file}")
+                        continue
+                        
+                    with open(seq_file, 'r') as f:
+                        sequences = json.load(f)
+                        
+                    logger.info(f"Generating ProtT5 embeddings for {aspect} {split}: {len(sequences)} proteins")
+                    
+                    # Process in batches
+                    protein_ids = list(sequences.keys())
+                    
+                    for i in tqdm(range(0, len(protein_ids), self.batch_size), desc=f"{aspect} {split}"):
+                        batch_ids = protein_ids[i:i+self.batch_size]
+                        batch_seqs = [sequences[pid] for pid in batch_ids]
+                        
+                        # Skip if embeddings already exist
+                        if all((self.output_dir / f"{pid}.npy").exists() for pid in batch_ids):
+                            continue
+                        
+                        try:
+                            # Preprocess sequences
+                            processed_seqs = self._preprocess_sequences(batch_seqs)
+                            
+                            # Check if any sequences will be truncated
+                            max_seq_len = max(len(seq) for seq in batch_seqs)
+                            if max_seq_len > self.max_length - 2:  # -2 for special tokens
+                                logger.warning(f"Some sequences will be truncated. Max length: {max_seq_len}, limit: {self.max_length}")
+                            
+                            # Tokenize with truncation
+                            ids = tokenizer.batch_encode_plus(
+                                processed_seqs,
+                                add_special_tokens=True,
+                                padding="longest",
+                                truncation=True,
+                                max_length=self.max_length,
+                                return_tensors='pt'
+                            ).to(device)
+                            
+                            # Generate embeddings
+                            with torch.no_grad():
+                                outputs = model(
+                                    ids.input_ids,
+                                    attention_mask=ids.attention_mask
+                                )
+                                embeddings = outputs.last_hidden_state
+                            
+                            # Extract and save embeddings for each protein
+                            for idx, (pid, seq) in enumerate(zip(batch_ids, batch_seqs)):
+                                # Calculate actual sequence length
+                                seq_len = len(seq)
+                                
+                                # Get the actual length of the tokenized sequence (excluding padding)
+                                attention_mask_seq = ids.attention_mask[idx]
+                                actual_token_len = attention_mask_seq.sum().item()
+                                
+                                # Extract embeddings, skipping special tokens
+                                # +1 for start token
+                                start_idx = 1
+                                # Ensure we don't go beyond the actual tokenized length
+                                # -1 for end token
+                                end_idx = min(start_idx + seq_len, actual_token_len - 1)
+                                
+                                # Get embeddings for actual sequence
+                                seq_embeddings = embeddings[idx, start_idx:end_idx]
+                                
+                                # Mean pooling over sequence length
+                                pooled_embedding = seq_embeddings.mean(dim=0).cpu().numpy()
+                                
+                                # Also save per-residue embeddings
+                                per_residue_embeddings = seq_embeddings.cpu().numpy()
+                                
+                                # Save embeddings
+                                embedding_data = {
+                                    "name": pid,
+                                    "embedding": pooled_embedding,  # Mean pooled embedding (1024,)
+                                    "per_residue_embedding": per_residue_embeddings,  # Per-residue embeddings (seq_len, 1024)
+                                    "sequence_length": seq_len,
+                                    "truncated_length": end_idx - start_idx  # Actual length after truncation
+                                }
+                                
+                                np.save(
+                                    self.output_dir / f"{pid}.npy",
+                                    embedding_data,
+                                    allow_pickle=True
+                                )
+                                
+                        except Exception as e:
+                            logger.error(f"Error processing batch starting at index {i}: {e}")
+                            logger.error(f"Batch IDs: {batch_ids}")
+                            
+            logger.info("ProtT5 embedding generation completed!")
+# 
 class ESMEmbeddingGenerator:
     """Generate ESM embeddings for CAFA3 proteins."""
     
@@ -564,7 +888,6 @@ class ESMEmbeddingGenerator:
                             
                     except Exception as e:
                         logger.error(f"Error processing batch: {e}")
-
 # class CAFA3ExperimentGenerator:
 #     """Generate experiment configurations for CAFA3."""
     
@@ -680,8 +1003,11 @@ class CAFA3ExperimentGenerator:
             configs = [
                 self._create_config(base_config, aspect, info, 'A_ESM_only', ['esm']),
                 self._create_config(base_config, aspect, info, 'B_Text_only', ['text']),
-                self._create_config(base_config, aspect, info, 'C_Structure', ['structure'], 
-                                  graph_type='radius', radius=10.0),
+                            # Add ProtT5 and ProstT5 baselines
+                self._create_config(base_config, aspect, info, 'D_ProtT5_only', ['prott5']),
+                self._create_config(base_config, aspect, info, 'E_ProstT5_only', ['prostt5']),
+                # self._create_config(base_config, aspect, info, 'C_Structure', ['structure'], 
+                #                   graph_type='radius', radius=10.0),
             ]
             
             # ESM + Text fusion variants
@@ -707,9 +1033,57 @@ class CAFA3ExperimentGenerator:
                                   ['esm', 'text'], fusion_type='contrastive', 
                                   contrastive_weight=0.5),
             ]
+
+                    # ProtT5 fusion experiments
+            prott5_fusion_configs = [
+                # ProtT5 + Text
+                self._create_config(base_config, aspect, info, 'K_ProtT5_Text_concat', 
+                                ['prott5', 'text'], fusion_type='concat'),
+                
+                self._create_config(base_config, aspect, info, 'L_ProtT5_Text_gated', 
+                                ['prott5', 'text'], fusion_type='gated'),
+                
+                # ESM + ProtT5 (combine two protein language models)
+                self._create_config(base_config, aspect, info, 'M_ESM_ProtT5_concat', 
+                                ['esm', 'prott5'], fusion_type='concat'),
+                
+                self._create_config(base_config, aspect, info, 'N_ESM_ProtT5_gated', 
+                                ['esm', 'prott5'], fusion_type='gated'),
+                
+                # ProtT5 + ProstT5 (base model + structure-aware variant)
+                self._create_config(base_config, aspect, info, 'O_ProtT5_ProstT5_contrastive', 
+                                ['esm', 'prott5'], fusion_type='contrastive'),
+                
+                self._create_config(base_config, aspect, info, 'P_ProtT5_ProstT5_transformer', 
+                                ['esm', 'prott5'], fusion_type='transformer', num_layers=2),
+            ]
+
+                    # ProstT5 fusion experiments
+            prostt5_fusion_configs = [
+                # ProstT5 + Text
+                self._create_config(base_config, aspect, info, 'Q_ProstT5_Text_concat', 
+                                ['prostt5', 'text'], fusion_type='concat'),
+                
+                self._create_config(base_config, aspect, info, 'R_ProstT5_Text_gated', 
+                                ['prostt5', 'text'], fusion_type='gated'),
+                
+                # ESM + ProstT5
+                self._create_config(base_config, aspect, info, 'S_ESM_ProstT5_concat', 
+                                ['esm', 'prostt5'], fusion_type='concat'),
+                
+                self._create_config(base_config, aspect, info, 'T_ESM_ProstT5_gated', 
+                                ['esm', 'prostt5'], fusion_type='gated'),
+
+
+                self._create_config(base_config, aspect, info, 'U_ESM_ProstT5_transformer', 
+                                ['esm', 'prostt5'], fusion_type='transformer'),
+            ]
             
             
             configs.extend(fusion_configs)
+            # configs.extend(prott5_fusion_configs)
+            configs.extend(prostt5_fusion_configs)
+
             # Only add full configs if you have structure data
             # configs.extend(full_configs)
             
@@ -1236,7 +1610,7 @@ def main():
     
     parser = argparse.ArgumentParser(description="CAFA3 dataset integration")
     parser.add_argument('--action', type=str, required=True,
-                       choices=['prepare', 'embeddings','structures', 'debug', 'train', 'generate_ia'],
+                       choices=['prepare', 'embeddings','structures', 'debug', 'train', 'generate_ia', 'prostt5_embeddings', 'prott5_embeddings'],
                        help="Action to perform")
     parser.add_argument('--small-subset', action='store_true',
                        help="Use small subset for testing")
@@ -1262,8 +1636,27 @@ def main():
             output_dir="/SAN/bioinf/PFP/embeddings/cafa3/esm"
         )
         generator.generate_embeddings()
-
+    elif args.action == 'prostt5_embeddings':
+        # Generate ProstT5 embeddings
+        output_subdir = "prostt5" 
+        generator = ProstT5EmbeddingGenerator(
+            data_dir=f"{base_dir}/data",
+            output_dir=f"/SAN/bioinf/PFP/embeddings/cafa3/{output_subdir}",
+            embedding_type='AA',
+            batch_size=4  # Adjust based on your GPU memory
+        )
         
+
+        generator.generate_embeddings()
+
+    elif args.action == 'prott5_embeddings':
+        # Generate ProtT5 embeddings
+        generator = ProtT5EmbeddingGenerator(
+            data_dir=f"{base_dir}/data",
+            output_dir="/SAN/bioinf/PFP/embeddings/cafa3/prott5",
+            batch_size=4  # Adjust based on your GPU memory
+        )
+        generator.generate_embeddings()
     elif args.action == 'structures':
         # Fetch structures
         # First collect all unique protein IDs
