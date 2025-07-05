@@ -1037,25 +1037,28 @@ class CAFA3ExperimentGenerator:
                     # ProtT5 fusion experiments
             prott5_fusion_configs = [
                 # ProtT5 + Text
-                self._create_config(base_config, aspect, info, 'K_ProtT5_Text_concat', 
-                                ['prott5', 'text'], fusion_type='concat'),
+
                 
                 self._create_config(base_config, aspect, info, 'L_ProtT5_Text_gated', 
                                 ['prott5', 'text'], fusion_type='gated'),
+
+                                # Mixture of Experts
+                self._create_config(base_config, aspect, info, 'F_ProtT5_Text_moe', 
+                                  ['prott5', 'text'], fusion_type='moe', num_experts=3),
                 
                 # ESM + ProtT5 (combine two protein language models)
                 self._create_config(base_config, aspect, info, 'M_ESM_ProtT5_concat', 
                                 ['esm', 'prott5'], fusion_type='concat'),
                 
-                self._create_config(base_config, aspect, info, 'N_ESM_ProtT5_gated', 
-                                ['esm', 'prott5'], fusion_type='gated'),
+                self._create_config(base_config, aspect, info, 'N_ESM_ProtT5_moe', 
+                                ['esm', 'prott5'], fusion_type='moe', num_experts=3),
                 
-                # ProtT5 + ProstT5 (base model + structure-aware variant)
-                self._create_config(base_config, aspect, info, 'O_ProtT5_ProstT5_contrastive', 
-                                ['esm', 'prott5'], fusion_type='contrastive'),
+                # # ProtT5 + ProstT5 (base model + structure-aware variant)
+                # self._create_config(base_config, aspect, info, 'O_ProtT5_ProstT5_contrastive', 
+                #                 ['esm', 'prott5'], fusion_type='contrastive'),
                 
-                self._create_config(base_config, aspect, info, 'P_ProtT5_ProstT5_transformer', 
-                                ['esm', 'prott5'], fusion_type='transformer', num_layers=2),
+                # self._create_config(base_config, aspect, info, 'P_ProtT5_ProstT5_transformer', 
+                #                 ['esm', 'prott5'], fusion_type='transformer', num_layers=2),
             ]
 
                     # ProstT5 fusion experiments
@@ -1081,7 +1084,7 @@ class CAFA3ExperimentGenerator:
             
             
             configs.extend(fusion_configs)
-            # configs.extend(prott5_fusion_configs)
+            configs.extend(prott5_fusion_configs)
             configs.extend(prostt5_fusion_configs)
 
             # Only add full configs if you have structure data

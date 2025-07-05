@@ -155,7 +155,7 @@ class MultiModalFusionModel(torch.nn.Module):
         self.feature_dims = {
             'esm': 1280,
             'prostt5': 1024,
-            'prost5': 1024,
+            'prott5': 1024,
             'text': 768,
             'structure': 512  # After EGNN encoding
         }
@@ -522,7 +522,11 @@ def validate(model, valid_loader, criterion, metric_tracker, device, experiment_
                 logits = model(features[feat_name].to(device))
             else:
                 # ----- Dual‑stream aware forward -----
-                if (len(features) == 2):                              
+                if (
+                    len(features) == 2
+                    and hasattr(model, "forward")
+                    and model.forward.__code__.co_argcount > 3
+                ):
                     # Keep key order deterministic (Python ≥3.7 preserves insertion order)
                     feat1, feat2 = list(features)
                     input1 = features[feat1].to(device)
