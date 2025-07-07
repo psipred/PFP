@@ -972,21 +972,19 @@ class ESMEmbeddingGenerator:
 #         config['log']['out_dir'] = f"/SAN/bioinf/PFP/PFP/experiments/cafa3_integration/results/{config['experiment_name']}"
         
 #         return config
+# Replace the CAFA3ExperimentGenerator class in cafa3_integration.py with this simplified version:
+
 class CAFA3ExperimentGenerator:
-    """Generate experiment configurations for CAFA3 with advanced fusion methods."""
+    """Generate experiment configurations for CAFA3."""
     
-    def __init__(self, 
-                 data_dir: str,
-                 base_config_path: str,
-                 output_dir: str):
-        
+    def __init__(self, data_dir, base_config_path, output_dir):
         self.data_dir = Path(data_dir)
         self.base_config_path = Path(base_config_path)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
     def generate_configs(self):
-        """Generate configuration files for CAFA3 experiments including fusion variants."""
+        """Generate configuration files for CAFA3 experiments."""
         
         # Load base config
         with open(self.base_config_path, 'r') as f:
@@ -1000,187 +998,82 @@ class CAFA3ExperimentGenerator:
                 info = json.load(f)
                 
             # Single modality baselines
-            configs = [
-                self._create_config(base_config, aspect, info, 'A_ESM_only', ['esm']),
-                self._create_config(base_config, aspect, info, 'B_Text_only', ['text']),
-                            # Add ProtT5 and ProstT5 baselines
-                self._create_config(base_config, aspect, info, 'D_ProtT5_only', ['prott5']),
-                self._create_config(base_config, aspect, info, 'E_ProstT5_only', ['prostt5']),
-                # self._create_config(base_config, aspect, info, 'C_Structure', ['structure'], 
-                #                   graph_type='radius', radius=10.0),
+            single_configs = [
+                self._create_config(base_config, aspect, info, 'ESM_only', ['esm']),
+                self._create_config(base_config, aspect, info, 'Text_only', ['text']),
+                self._create_config(base_config, aspect, info, 'ProtT5_only', ['prott5']),
+                self._create_config(base_config, aspect, info, 'ProstT5_only', ['prostt5']),
             ]
             
-            # ESM + Text fusion variants
-            fusion_configs = [
-                # Original concatenation (for comparison)
-                self._create_config(base_config, aspect, info, 'D_ESM_Text_concat', 
-                                  ['esm', 'text'], fusion_type='concat'),
-                
-                # Gated fusion
-                self._create_config(base_config, aspect, info, 'E_ESM_Text_gated', 
-                                  ['esm', 'text'], fusion_type='gated'),
-                
-                # Mixture of Experts
-                self._create_config(base_config, aspect, info, 'F_ESM_Text_moe', 
-                                  ['esm', 'text'], fusion_type='moe', num_experts=3),
-                
-                # Transformer fusion
-                self._create_config(base_config, aspect, info, 'G_ESM_Text_transformer', 
-                                  ['esm', 'text'], fusion_type='transformer', num_layers=4),
-                
-                # Contrastive fusion
-                self._create_config(base_config, aspect, info, 'H_ESM_Text_contrastive', 
-                                  ['esm', 'text'], fusion_type='contrastive', 
-                                  contrastive_weight=0.5),
-            ]
-
-                    # ProtT5 fusion experiments
-            prott5_fusion_configs = [
-                # ProtT5 + Text
-
-                
-                self._create_config(base_config, aspect, info, 'L_ProtT5_Text_gated', 
-                                ['prott5', 'text'], fusion_type='gated'),
-
-                                # Mixture of Experts
-                self._create_config(base_config, aspect, info, 'F_ProtT5_Text_moe', 
-                                  ['prott5', 'text'], fusion_type='moe', num_experts=3),
-                
-                # ESM + ProtT5 (combine two protein language models)
-                self._create_config(base_config, aspect, info, 'M_ESM_ProtT5_concat', 
-                                ['esm', 'prott5'], fusion_type='concat'),
-                
-                self._create_config(base_config, aspect, info, 'N_ESM_ProtT5_moe', 
-                                ['esm', 'prott5'], fusion_type='moe', num_experts=3),
-                
-                # # ProtT5 + ProstT5 (base model + structure-aware variant)
-                # self._create_config(base_config, aspect, info, 'O_ProtT5_ProstT5_contrastive', 
-                #                 ['esm', 'prott5'], fusion_type='contrastive'),
-                
-                # self._create_config(base_config, aspect, info, 'P_ProtT5_ProstT5_transformer', 
-                #                 ['esm', 'prott5'], fusion_type='transformer', num_layers=2),
-            ]
-
-                    # ProstT5 fusion experiments
-            prostt5_fusion_configs = [
-                # ProstT5 + Text
-                self._create_config(base_config, aspect, info, 'Q_ProstT5_Text_concat', 
-                                ['prostt5', 'text'], fusion_type='concat'),
-                
-                self._create_config(base_config, aspect, info, 'R_ProstT5_Text_gated', 
-                                ['prostt5', 'text'], fusion_type='gated'),
-                
-                # ESM + ProstT5
-                self._create_config(base_config, aspect, info, 'S_ESM_ProstT5_concat', 
-                                ['esm', 'prostt5'], fusion_type='concat'),
-                
-                self._create_config(base_config, aspect, info, 'T_ESM_ProstT5_gated', 
-                                ['esm', 'prostt5'], fusion_type='gated'),
-
-
-                self._create_config(base_config, aspect, info, 'U_ESM_ProstT5_transformer', 
-                                ['esm', 'prostt5'], fusion_type='transformer'),
+            # Fusion experiments - all combinations with all fusion types
+            fusion_types = ['concat', 'gated', 'moe', 'transformer', 'contrastive']
+            modality_pairs = [
+                ('esm', 'text'),
+                ('esm', 'prott5'),
+                ('esm', 'prostt5'),
+                ('prott5', 'text'),
+                ('prostt5', 'text'),
+                ('prott5', 'prostt5')
             ]
             
+            fusion_configs = []
+            for mod1, mod2 in modality_pairs:
+                for fusion_type in fusion_types:
+                    name = f"{mod1.upper()}_{mod2.upper()}_{fusion_type}"
+                    config = self._create_config(
+                        base_config, aspect, info, name, 
+                        [mod1, mod2], fusion_type=fusion_type
+                    )
+                    fusion_configs.append(config)
             
-            configs.extend(fusion_configs)
-            configs.extend(prott5_fusion_configs)
-            configs.extend(prostt5_fusion_configs)
-
-            # Only add full configs if you have structure data
-            # configs.extend(full_configs)
-            
-            experiments.extend(configs)
+            experiments.extend(single_configs + fusion_configs)
 
         # Save configurations
         for exp in experiments:
             config_path = self.output_dir / f"{exp['experiment_name']}.yaml"
             with open(config_path, 'w') as f:
                 yaml.dump(exp, f, default_flow_style=False)
-                
+        
         # Generate submission scripts
         self._generate_submission_scripts(experiments)
         
-                
         return experiments
         
-    def _create_config(self, base_config: dict, aspect: str, info: dict, 
-                      model_name: str, features: List[str], **kwargs):
-        """Create experiment configuration with fusion support."""
+    def _create_config(self, base_config, aspect, info, model_name, features, **kwargs):
+        """Create experiment configuration."""
         import copy
         config = copy.deepcopy(base_config)
         
         config['experiment_name'] = f"{model_name}_{aspect}"
-        
-        # Dataset paths
         config['dataset']['train_names'] = str(self.data_dir / f"{aspect}_train_names.npy")
         config['dataset']['train_labels'] = str(self.data_dir / f"{aspect}_train_labels.npz")
         config['dataset']['valid_names'] = str(self.data_dir / f"{aspect}_valid_names.npy")
         config['dataset']['valid_labels'] = str(self.data_dir / f"{aspect}_valid_labels.npz")
         config['dataset']['features'] = features
         
-        # Model configuration
         config['model']['output_dim'] = info['n_go_terms']
         
-        # Fusion-specific configurations
+        # Fusion-specific parameters
         if len(features) > 1:
             fusion_type = kwargs.get('fusion_type', 'concat')
             config['model']['fusion_type'] = fusion_type
-            config['model']['fusion_method'] = fusion_type  # For backward compatibility
             
-            # Common fusion parameters
-            config['model']['hidden_dim'] = kwargs.get('hidden_dim', 512)
-            
-            # Fusion-specific parameters
+            # Add fusion-specific parameters
             if fusion_type == 'moe':
-                config['model']['num_experts'] = kwargs.get('num_experts', 3)
-                config['model']['sparse_gating'] = kwargs.get('sparse_gating', True)
-                config['model']['top_k_experts'] = kwargs.get('top_k_experts', 2)
-                
+                config['model']['num_experts'] = 3
             elif fusion_type == 'transformer':
-                config['model']['num_layers'] = kwargs.get('num_layers', 4)
-                config['model']['num_heads'] = kwargs.get('num_heads', 8)
-                config['model']['num_query_tokens'] = kwargs.get('num_query_tokens', 8)
-                
+                config['model']['num_layers'] = 4
+                config['model']['num_heads'] = 8
             elif fusion_type == 'contrastive':
-                config['model']['temperature'] = kwargs.get('temperature', 0.07)
-                config['model']['contrastive_weight'] = kwargs.get('contrastive_weight', 0.5)
-                config['model']['auxiliary_weight'] = kwargs.get('auxiliary_weight', 0.1)
-                
-            elif fusion_type == 'gated':
-                config['model']['gate_dropout'] = kwargs.get('gate_dropout', 0.1)
-                config['model']['residual_weight'] = kwargs.get('residual_weight', 0.1)
+                config['model']['temperature'] = 0.07
+                config['model']['contrastive_weight'] = 0.5
         
-        # Structure-specific configurations
-        if 'structure' in features:
-            config['graph'] = {
-                'type': kwargs.get('graph_type', 'knn'),
-                'k': kwargs.get('k', 10),
-                'radius': kwargs.get('radius', 10.0),
-                'use_esm_features': True
-            }
-        
-        # Training configurations optimized for fusion
-        if len(features) > 1 and fusion_type != 'concat':
-            # Lower learning rate for fusion models
-            config['optim']['lr'] = config['optim'].get('lr', 1e-3) * 0.1
-            
-            # Add warmup for stability
-            config['optim']['warmup_steps'] = kwargs.get('warmup_steps', 1000)
-            
-            # Gradient clipping
-            config['optim']['gradient_clip'] = kwargs.get('gradient_clip', 1.0)
-            
-            # Potentially longer training for fusion models
-            config['optim']['epochs'] = int(config['optim'].get('epochs', 100) * 1.2)
-
-        # Output directory
         config['log']['out_dir'] = f"/SAN/bioinf/PFP/PFP/experiments/cafa3_integration/results/{config['experiment_name']}"
         
         return config
     
     def _generate_submission_scripts(self, experiments):
-        """Generate individual submission scripts for each experiment."""
+        """Generate submission scripts."""
         scripts_dir = self.output_dir.parent / "scripts"
         scripts_dir.mkdir(exist_ok=True)
         
@@ -1194,27 +1087,19 @@ class CAFA3ExperimentGenerator:
 #$ -wd /SAN/bioinf/PFP/PFP
 #$ -l gpu=true
 
-echo "Starting CAFA3 experiment: {exp['experiment_name']}"
-echo "Date: $(date)"
-
-# Activate environment
 source /SAN/bioinf/PFP/conda/miniconda3/etc/profile.d/conda.sh
 conda activate train
 
-# Run training
 cd /SAN/bioinf/PFP/PFP
 python experiments/cafa3_integration/train_cafa3.py \\
     --config {self.output_dir}/{exp['experiment_name']}.yaml \\
     --experiment-name {exp['experiment_name']}
-
-echo "Experiment completed: $(date)"
 """
             
             script_path = scripts_dir / f"{exp['experiment_name']}.sh"
             with open(script_path, 'w') as f:
                 f.write(script_content)
             script_path.chmod(0o755)
-    
 
 
 

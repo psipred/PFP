@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Updated CAFA3 Evaluation Script with Information Accretion support and proper metric mapping
-Location: /SAN/bioinf/PFP/PFP/experiments/cafa3_integration/evaluate_cafa3_with_ia.py
+Location: /SAN/bioinf/PFP/PFP/experiments/cafa3_integration/evaluate_cafa3.py
 """
 
 import os
@@ -13,6 +13,7 @@ import logging
 import scipy.sparse as ssp
 import json
 from collections import defaultdict
+import re
 
 # Add cafaeval to path if needed
 sys.path.append('/SAN/bioinf/PFP/PFP')
@@ -58,6 +59,15 @@ METRIC_NAME_MAPPING = {
 }
 
 
+def clean_model_name(model_name):
+    """Remove prefix letters (A_, B_, etc.) from model names."""
+    # Remove .tsv extension if present
+    clean_name = model_name.replace('.tsv', '')
+    # Remove prefix pattern like A_, B_, etc.
+    clean_name = re.sub(r'^[A-Z]_', '', clean_name)
+    return clean_name
+
+
 def format_metric_name(metric_key):
     """Convert metric key to readable name."""
     return METRIC_NAME_MAPPING.get(metric_key, metric_key)
@@ -71,8 +81,6 @@ def extract_model_best_performance(results_df, model_name):
         return None
     
     best_metrics = {}
-
-    
     
     # Find best F-measure
     if 'f' in model_results.columns:
@@ -263,13 +271,13 @@ def extract_best_metrics_from_results(results_df, aspect):
 def save_formatted_results(results_df, output_dir, aspect, rankings):
     """Save formatted evaluation results with each model's best performance."""
     
-    # Best F-measure results
+    # Best F-measure results - show ALL models
     if rankings['f_max']:
         f_data = []
-        for i, entry in enumerate(rankings['f_max'][:20]):  # Top 20 models
+        for i, entry in enumerate(rankings['f_max']):
             f_data.append({
                 'Rank': i + 1,
-                'Model': entry['model'].replace('.tsv', ''),
+                'Model': clean_model_name(entry['model']),
                 'F-measure': entry['value'],
                 'Precision': entry['precision'],
                 'Recall': entry['recall'],
@@ -279,13 +287,13 @@ def save_formatted_results(results_df, output_dir, aspect, rankings):
         f_df = pd.DataFrame(f_data)
         f_df.to_csv(output_dir / "best_f_measure.tsv", sep='\t', index=False, float_format='%.4f')
     
-    # Best weighted F-measure results
+    # Best weighted F-measure results - show ALL models
     if rankings['f_max_weighted']:
         fw_data = []
-        for i, entry in enumerate(rankings['f_max_weighted'][:20]):
+        for i, entry in enumerate(rankings['f_max_weighted']):
             fw_data.append({
                 'Rank': i + 1,
-                'Model': entry['model'].replace('.tsv', ''),
+                'Model': clean_model_name(entry['model']),
                 'F-measure (Weighted)': entry['value'],
                 'Precision (Weighted)': entry['precision'],
                 'Recall (Weighted)': entry['recall'],
@@ -295,13 +303,13 @@ def save_formatted_results(results_df, output_dir, aspect, rankings):
         fw_df = pd.DataFrame(fw_data)
         fw_df.to_csv(output_dir / "best_f_measure_weighted.tsv", sep='\t', index=False, float_format='%.4f')
     
-    # Best S-measure results
+    # Best S-measure results - show ALL models
     if rankings['s_min']:
         s_data = []
-        for i, entry in enumerate(rankings['s_min'][:20]):
+        for i, entry in enumerate(rankings['s_min']):
             s_data.append({
                 'Rank': i + 1,
-                'Model': entry['model'].replace('.tsv', ''),
+                'Model': clean_model_name(entry['model']),
                 'S-measure': entry['value'],
                 'Remaining Uncertainty': entry['remaining_uncertainty'],
                 'Misinformation': entry['misinformation'],
@@ -310,13 +318,13 @@ def save_formatted_results(results_df, output_dir, aspect, rankings):
         s_df = pd.DataFrame(s_data)
         s_df.to_csv(output_dir / "best_s_measure.tsv", sep='\t', index=False, float_format='%.4f')
     
-    # Best weighted S-measure results
+    # Best weighted S-measure results - show ALL models
     if rankings['s_min_weighted']:
         sw_data = []
-        for i, entry in enumerate(rankings['s_min_weighted'][:20]):
+        for i, entry in enumerate(rankings['s_min_weighted']):
             sw_data.append({
                 'Rank': i + 1,
-                'Model': entry['model'].replace('.tsv', ''),
+                'Model': clean_model_name(entry['model']),
                 'S-measure (Weighted)': entry['value'],
                 'Remaining Uncertainty (Weighted)': entry['remaining_uncertainty'],
                 'Misinformation (Weighted)': entry['misinformation'],
@@ -341,7 +349,7 @@ def save_model_comparison_table(output_dir, rankings):
     # Build comparison data
     comparison_data = []
     for model in sorted(all_models):
-        row = {'Model': model.replace('.tsv', '')}
+        row = {'Model': clean_model_name(model)}
         
         # Find model's performance in each metric
         for entry in rankings['f_max']:
@@ -506,6 +514,14 @@ def save_ia_comparison(aspect: str, experiment_dir: Path, ia_output_dir: Path, b
         comparison['with_ia'] = {k: v for k, v in best_metrics.items() 
                                if k not in ['rankings', 'model_best_metrics']}
     
+    # Clean model names in comparison
+    for metric_type in ['f_max', 'f_max_weighted', 's_min', 's_min_weighted']:
+        if metric_type in comparison.get('with_ia', {}):
+            if 'model' in comparison['with_ia'][metric_type]:
+                comparison['with_ia'][metric_type]['model'] = clean_model_name(
+                    comparison['with_ia'][metric_type]['model']
+                )
+    
     # Load results without IA (if available)
     standard_eval_dir = experiment_dir / "evaluation" / aspect
     if standard_eval_dir.exists():
@@ -523,7 +539,7 @@ def save_ia_comparison(aspect: str, experiment_dir: Path, ia_output_dir: Path, b
                     comparison['without_ia'] = {
                         'f_max': {
                             'value': float(df_no_ia.iloc[0].get('Fmax', df_no_ia.iloc[0].get('f', 0))),
-                            'model': df_no_ia.iloc[0].get('filename', 'unknown')
+                            'model': clean_model_name(df_no_ia.iloc[0].get('filename', 'unknown'))
                         }
                     }
     
@@ -579,13 +595,13 @@ def create_comprehensive_evaluation_report(experiment_dir: str):
             # Standard metrics
             if 'f_max' in metrics:
                 row['F-max'] = f"{metrics['f_max']['value']:.4f}"
-                row['Best Model (F)'] = metrics['f_max']['model'].replace('.tsv', '')
+                row['Best Model (F)'] = clean_model_name(metrics['f_max']['model'])
                 row['Threshold (F)'] = f"{metrics['f_max']['threshold']:.2f}"
                 
             # IA-weighted metrics
             if 'f_max_weighted' in metrics:
                 row['F-max (IA-weighted)'] = f"{metrics['f_max_weighted']['value']:.4f}"
-                row['Best Model (F-IA)'] = metrics['f_max_weighted']['model'].replace('.tsv', '')
+                row['Best Model (F-IA)'] = clean_model_name(metrics['f_max_weighted']['model'])
                 
             # S-measure
             if 's_min' in metrics:
@@ -620,8 +636,8 @@ def create_comprehensive_evaluation_report(experiment_dir: str):
                 
                 if comp['impact'].get('best_model_changed', False):
                     row['Model Change'] = 'Yes'
-                    row['Best w/o IA'] = comp['impact']['best_model_without_ia'].replace('.tsv', '')
-                    row['Best w/ IA'] = comp['impact']['best_model_with_ia'].replace('.tsv', '')
+                    row['Best w/o IA'] = comp['impact']['best_model_without_ia']
+                    row['Best w/ IA'] = comp['impact']['best_model_with_ia']
                 else:
                     row['Model Change'] = 'No'
                     
@@ -646,9 +662,9 @@ def create_comprehensive_evaluation_report(experiment_dir: str):
         comparison_file = aspect_dir / "model_comparison.tsv"
         if comparison_file.exists():
             df = pd.read_csv(comparison_file, sep='\t')
-            # Show top 10 models
-            report_lines.append("**Top 10 Models by Average Rank**\n\n")
-            report_lines.append(df.head(10).to_markdown(index=False))
+            # Show ALL models by average rank
+            report_lines.append("**All Models by Average Rank**\n\n")
+            report_lines.append(df.to_markdown(index=False))
             report_lines.append("\n\n")
     
     # IA Statistics
@@ -674,7 +690,7 @@ def create_comprehensive_evaluation_report(experiment_dir: str):
         report_lines.append(ia_stats_df.to_markdown(index=False))
         report_lines.append("\n\n")
     
-    # Detailed results for each aspect
+    # Detailed results for each aspect - show all models
     for aspect in ['BPO', 'CCO', 'MFO']:
         aspect_dir = eval_dir / aspect
         if not aspect_dir.exists():
@@ -686,304 +702,303 @@ def create_comprehensive_evaluation_report(experiment_dir: str):
         f_file = aspect_dir / "best_f_measure.tsv"
         if f_file.exists():
             df = pd.read_csv(f_file, sep='\t')
-            report_lines.append("### Top 5 Models by F-measure\n\n")
-            report_lines.append(df.head().to_markdown(index=False))
+            report_lines.append("### All Models by F-measure\n\n")
+            report_lines.append(df.to_markdown(index=False))
             report_lines.append("\n\n")
         
         # Best weighted F-measure
         fw_file = aspect_dir / "best_f_measure_weighted.tsv"
         if fw_file.exists():
             df = pd.read_csv(fw_file, sep='\t')
-            report_lines.append("### Top 5 Models by F-measure (IA-weighted)\n\n")
-            report_lines.append(df.head().to_markdown(index=False))
+            report_lines.append("### All Models by F-measure (IA-weighted)\n\n")
+            report_lines.append(df.to_markdown(index=False))
             report_lines.append("\n\n")
     
-            # Metric Descriptions
-
-            report_lines.append("## Metric Descriptions\n\n")
-            report_lines.append("- **F-measure**: Harmonic mean of precision and recall\n")
-            report_lines.append("- **S-measure**: Semantic distance-based measure (lower is better)\n")
-            report_lines.append("- **IA-weighted**: Metrics weighted by Information Accretion (term specificity)\n")
-            report_lines.append("- **Coverage**: Fraction of proteins with at least one prediction\n")
-            report_lines.append("- **Remaining Uncertainty**: Information content not captured by predictions\n")
-            report_lines.append("- **Misinformation**: Information content of incorrect predictions\n")
-            report_lines.append("- **Threshold**: Confidence threshold used for predictions\n")
-            report_lines.append("- **Rank**: Model's position in the ranking for each metric\n")
-            report_lines.append("- **Avg Rank**: Average rank across all metrics (lower is better)\n")
-            
-            # Save report
-            report_file = eval_dir / "evaluation_report_with_ia.md"
-            with open(report_file, 'w') as f:
-                f.writelines(report_lines)
-            
-            logger.info(f"Comprehensive evaluation report saved to {report_file}")
-            
-            # Also create a simplified summary report
-            create_simplified_summary(experiment_dir)
+    # Metric Descriptions
+    report_lines.append("## Metric Descriptions\n\n")
+    report_lines.append("- **F-measure**: Harmonic mean of precision and recall\n")
+    report_lines.append("- **S-measure**: Semantic distance-based measure (lower is better)\n")
+    report_lines.append("- **IA-weighted**: Metrics weighted by Information Accretion (term specificity)\n")
+    report_lines.append("- **Coverage**: Fraction of proteins with at least one prediction\n")
+    report_lines.append("- **Remaining Uncertainty**: Information content not captured by predictions\n")
+    report_lines.append("- **Misinformation**: Information content of incorrect predictions\n")
+    report_lines.append("- **Threshold**: Confidence threshold used for predictions\n")
+    report_lines.append("- **Rank**: Model's position in the ranking for each metric\n")
+    report_lines.append("- **Avg Rank**: Average rank across all metrics (lower is better)\n")
+    
+    # Save report
+    report_file = eval_dir / "evaluation_report_with_ia.md"
+    with open(report_file, 'w') as f:
+        f.writelines(report_lines)
+    
+    logger.info(f"Comprehensive evaluation report saved to {report_file}")
+    
+    # Also create a simplified summary report
+    create_simplified_summary(experiment_dir)
 
 
 def create_simplified_summary(experiment_dir: Path):
-   """Create a simplified summary for quick reference."""
-   
-   eval_dir = experiment_dir / "evaluation_with_ia"
-   summary_file = eval_dir / "summary.txt"
-   
-   with open(summary_file, 'w') as f:
-       f.write("CAFA3 Evaluation Summary with Information Accretion\n")
-       f.write("=" * 60 + "\n\n")
-       
-       # Overall best performers
-       f.write("OVERALL BEST PERFORMERS\n")
-       f.write("-" * 30 + "\n\n")
-       
-       best_models = defaultdict(lambda: defaultdict(dict))
-       
-       for aspect in ['BPO', 'CCO', 'MFO']:
-           best_metrics_file = eval_dir / aspect / "best_metrics.json"
-           if best_metrics_file.exists():
-               with open(best_metrics_file, 'r') as mf:
-                   metrics = json.load(mf)
-                   
-               f.write(f"{aspect}:\n")
-               if 'f_max' in metrics:
-                   model = metrics['f_max']['model'].replace('.tsv', '')
-                   value = metrics['f_max']['value']
-                   threshold = metrics['f_max']['threshold']
-                   f.write(f"  Best F-max: {value:.4f} ({model} @ τ={threshold:.2f})\n")
-                   best_models[model][aspect]['f_max'] = value
-                   
-               if 'f_max_weighted' in metrics:
-                   model = metrics['f_max_weighted']['model'].replace('.tsv', '')
-                   value = metrics['f_max_weighted']['value']
-                   threshold = metrics['f_max_weighted']['threshold']
-                   f.write(f"  Best F-max (IA): {value:.4f} ({model} @ τ={threshold:.2f})\n")
-                   best_models[model][aspect]['f_max_weighted'] = value
-                   
-               if 's_min' in metrics:
-                   model = metrics['s_min']['model'].replace('.tsv', '')
-                   value = metrics['s_min']['value']
-                   f.write(f"  Best S-min: {value:.4f} ({model})\n")
-                   best_models[model][aspect]['s_min'] = value
-                   
-               if 's_min_weighted' in metrics:
-                   model = metrics['s_min_weighted']['model'].replace('.tsv', '')
-                   value = metrics['s_min_weighted']['value']
-                   f.write(f"  Best S-min (IA): {value:.4f} ({model})\n")
-                   best_models[model][aspect]['s_min_weighted'] = value
-                   
-               f.write("\n")
-       
-       # Models that appear most frequently as best
-       f.write("\nMOST FREQUENT BEST PERFORMERS\n")
-       f.write("-" * 30 + "\n")
-       
-       model_counts = defaultdict(int)
-       for model, aspects in best_models.items():
-           for aspect, metrics in aspects.items():
-               model_counts[model] += len(metrics)
-       
-       sorted_models = sorted(model_counts.items(), key=lambda x: x[1], reverse=True)
-       for model, count in sorted_models[:5]:
-           f.write(f"  {model}: {count} best scores\n")
-       
-       f.write("\n")
-       
-       # IA Impact Summary
-       f.write("INFORMATION ACCRETION IMPACT\n")
-       f.write("-" * 30 + "\n")
-       
-       for aspect in ['BPO', 'CCO', 'MFO']:
-           comparison_file = eval_dir / aspect / "ia_comparison.json"
-           if comparison_file.exists():
-               with open(comparison_file, 'r') as cf:
-                   comp = json.load(cf)
-                   
-               if 'impact' in comp:
-                   f.write(f"{aspect}:\n")
-                   if 'f_max_difference' in comp['impact']:
-                       f.write(f"  F-max change: {comp['impact']['f_max_difference']:+.4f} ")
-                       f.write(f"({comp['impact']['f_max_percent_change']:+.2f}%)\n")
-                   
-                   if comp['impact'].get('best_model_changed', False):
-                       f.write(f"  Best model changed: ")
-                       f.write(f"{comp['impact']['best_model_without_ia']} → ")
-                       f.write(f"{comp['impact']['best_model_with_ia']}\n")
-                   
-                   f.write("\n")
-   
-   logger.info(f"Summary saved to {summary_file}")
-   
-   # Create a CSV summary for easy import into spreadsheets
-   create_csv_summary(eval_dir)
+    """Create a simplified summary for quick reference."""
+    
+    eval_dir = experiment_dir / "evaluation_with_ia"
+    summary_file = eval_dir / "summary.txt"
+    
+    with open(summary_file, 'w') as f:
+        f.write("CAFA3 Evaluation Summary with Information Accretion\n")
+        f.write("=" * 60 + "\n\n")
+        
+        # Overall best performers
+        f.write("OVERALL BEST PERFORMERS\n")
+        f.write("-" * 30 + "\n\n")
+        
+        best_models = defaultdict(lambda: defaultdict(dict))
+        
+        for aspect in ['BPO', 'CCO', 'MFO']:
+            best_metrics_file = eval_dir / aspect / "best_metrics.json"
+            if best_metrics_file.exists():
+                with open(best_metrics_file, 'r') as mf:
+                    metrics = json.load(mf)
+                    
+                f.write(f"{aspect}:\n")
+                if 'f_max' in metrics:
+                    model = clean_model_name(metrics['f_max']['model'])
+                    value = metrics['f_max']['value']
+                    threshold = metrics['f_max']['threshold']
+                    f.write(f"  Best F-max: {value:.4f} ({model} @ τ={threshold:.2f})\n")
+                    best_models[model][aspect]['f_max'] = value
+                    
+                if 'f_max_weighted' in metrics:
+                    model = clean_model_name(metrics['f_max_weighted']['model'])
+                    value = metrics['f_max_weighted']['value']
+                    threshold = metrics['f_max_weighted']['threshold']
+                    f.write(f"  Best F-max (IA): {value:.4f} ({model} @ τ={threshold:.2f})\n")
+                    best_models[model][aspect]['f_max_weighted'] = value
+                    
+                if 's_min' in metrics:
+                    model = clean_model_name(metrics['s_min']['model'])
+                    value = metrics['s_min']['value']
+                    f.write(f"  Best S-min: {value:.4f} ({model})\n")
+                    best_models[model][aspect]['s_min'] = value
+                    
+                if 's_min_weighted' in metrics:
+                    model = clean_model_name(metrics['s_min_weighted']['model'])
+                    value = metrics['s_min_weighted']['value']
+                    f.write(f"  Best S-min (IA): {value:.4f} ({model})\n")
+                    best_models[model][aspect]['s_min_weighted'] = value
+                    
+                f.write("\n")
+        
+        # Models that appear most frequently as best
+        f.write("\nMOST FREQUENT BEST PERFORMERS\n")
+        f.write("-" * 30 + "\n")
+        
+        model_counts = defaultdict(int)
+        for model, aspects in best_models.items():
+            for aspect, metrics in aspects.items():
+                model_counts[model] += len(metrics)
+        
+        sorted_models = sorted(model_counts.items(), key=lambda x: x[1], reverse=True)
+        for model, count in sorted_models[:10]:  # Show top 10 most frequent
+            f.write(f"  {model}: {count} best scores\n")
+        
+        f.write("\n")
+        
+        # IA Impact Summary
+        f.write("INFORMATION ACCRETION IMPACT\n")
+        f.write("-" * 30 + "\n")
+        
+        for aspect in ['BPO', 'CCO', 'MFO']:
+            comparison_file = eval_dir / aspect / "ia_comparison.json"
+            if comparison_file.exists():
+                with open(comparison_file, 'r') as cf:
+                    comp = json.load(cf)
+                    
+                if 'impact' in comp:
+                    f.write(f"{aspect}:\n")
+                    if 'f_max_difference' in comp['impact']:
+                        f.write(f"  F-max change: {comp['impact']['f_max_difference']:+.4f} ")
+                        f.write(f"({comp['impact']['f_max_percent_change']:+.2f}%)\n")
+                    
+                    if comp['impact'].get('best_model_changed', False):
+                        f.write(f"  Best model changed: ")
+                        f.write(f"{comp['impact']['best_model_without_ia']} → ")
+                        f.write(f"{comp['impact']['best_model_with_ia']}\n")
+                    
+                    f.write("\n")
+    
+    logger.info(f"Summary saved to {summary_file}")
+    
+    # Create a CSV summary for easy import into spreadsheets
+    create_csv_summary(eval_dir)
 
 
 def create_csv_summary(eval_dir: Path):
-   """Create CSV summaries for easy analysis."""
-   
-   # Collect all best metrics across aspects
-   all_metrics = []
-   
-   for aspect in ['BPO', 'CCO', 'MFO']:
-       best_metrics_file = eval_dir / aspect / "best_metrics.json"
-       if best_metrics_file.exists():
-           with open(best_metrics_file, 'r') as f:
-               metrics = json.load(f)
-           
-           # Standard metrics
-           if 'f_max' in metrics:
-               all_metrics.append({
-                   'Aspect': aspect,
-                   'Metric': 'F-max',
-                   'Value': metrics['f_max']['value'],
-                   'Model': metrics['f_max']['model'].replace('.tsv', ''),
-                   'Threshold': metrics['f_max']['threshold'],
-                   'Weighted': 'No'
-               })
-           
-           if 'f_max_weighted' in metrics:
-               all_metrics.append({
-                   'Aspect': aspect,
-                   'Metric': 'F-max',
-                   'Value': metrics['f_max_weighted']['value'],
-                   'Model': metrics['f_max_weighted']['model'].replace('.tsv', ''),
-                   'Threshold': metrics['f_max_weighted']['threshold'],
-                   'Weighted': 'Yes (IA)'
-               })
-           
-           if 's_min' in metrics:
-               all_metrics.append({
-                   'Aspect': aspect,
-                   'Metric': 'S-min',
-                   'Value': metrics['s_min']['value'],
-                   'Model': metrics['s_min']['model'].replace('.tsv', ''),
-                   'Threshold': metrics['s_min']['threshold'],
-                   'Weighted': 'No'
-               })
-           
-           if 's_min_weighted' in metrics:
-               all_metrics.append({
-                   'Aspect': aspect,
-                   'Metric': 'S-min',
-                   'Value': metrics['s_min_weighted']['value'],
-                   'Model': metrics['s_min_weighted']['model'].replace('.tsv', ''),
-                   'Threshold': metrics['s_min_weighted']['threshold'],
-                   'Weighted': 'Yes (IA)'
-               })
-   
-   # Save CSV
-   if all_metrics:
-       metrics_df = pd.DataFrame(all_metrics)
-       metrics_df.to_csv(eval_dir / "all_best_metrics.csv", index=False)
-       
-       # Create pivot table
-       pivot_df = metrics_df.pivot_table(
-           values='Value',
-           index=['Model', 'Weighted'],
-           columns=['Aspect', 'Metric'],
-           aggfunc='first'
-       )
-       pivot_df.to_csv(eval_dir / "metrics_pivot.csv")
-   
-   logger.info("CSV summaries created")
+    """Create CSV summaries for easy analysis."""
+    
+    # Collect all best metrics across aspects
+    all_metrics = []
+    
+    for aspect in ['BPO', 'CCO', 'MFO']:
+        best_metrics_file = eval_dir / aspect / "best_metrics.json"
+        if best_metrics_file.exists():
+            with open(best_metrics_file, 'r') as f:
+                metrics = json.load(f)
+            
+            # Standard metrics
+            if 'f_max' in metrics:
+                all_metrics.append({
+                    'Aspect': aspect,
+                    'Metric': 'F-max',
+                    'Value': metrics['f_max']['value'],
+                    'Model': clean_model_name(metrics['f_max']['model']),
+                    'Threshold': metrics['f_max']['threshold'],
+                    'Weighted': 'No'
+                })
+            
+            if 'f_max_weighted' in metrics:
+                all_metrics.append({
+                    'Aspect': aspect,
+                    'Metric': 'F-max',
+                    'Value': metrics['f_max_weighted']['value'],
+                    'Model': clean_model_name(metrics['f_max_weighted']['model']),
+                    'Threshold': metrics['f_max_weighted']['threshold'],
+                    'Weighted': 'Yes (IA)'
+                })
+            
+            if 's_min' in metrics:
+                all_metrics.append({
+                    'Aspect': aspect,
+                    'Metric': 'S-min',
+                    'Value': metrics['s_min']['value'],
+                    'Model': clean_model_name(metrics['s_min']['model']),
+                    'Threshold': metrics['s_min']['threshold'],
+                    'Weighted': 'No'
+                })
+            
+            if 's_min_weighted' in metrics:
+                all_metrics.append({
+                    'Aspect': aspect,
+                    'Metric': 'S-min',
+                    'Value': metrics['s_min_weighted']['value'],
+                    'Model': clean_model_name(metrics['s_min_weighted']['model']),
+                    'Threshold': metrics['s_min_weighted']['threshold'],
+                    'Weighted': 'Yes (IA)'
+                })
+    
+    # Save CSV
+    if all_metrics:
+        metrics_df = pd.DataFrame(all_metrics)
+        metrics_df.to_csv(eval_dir / "all_best_metrics.csv", index=False)
+        
+        # Create pivot table
+        pivot_df = metrics_df.pivot_table(
+            values='Value',
+            index=['Model', 'Weighted'],
+            columns=['Aspect', 'Metric'],
+            aggfunc='first'
+        )
+        pivot_df.to_csv(eval_dir / "metrics_pivot.csv")
+    
+    logger.info("CSV summaries created")
 
 
 def analyze_threshold_patterns(experiment_dir: Path):
-   """Analyze optimal threshold patterns across models and metrics."""
-   
-   eval_dir = experiment_dir / "evaluation_with_ia"
-   threshold_analysis = []
-   
-   for aspect in ['BPO', 'CCO', 'MFO']:
-       model_metrics_file = eval_dir / aspect / "model_best_metrics.json"
-       if model_metrics_file.exists():
-           with open(model_metrics_file, 'r') as f:
-               model_metrics = json.load(f)
-           
-           for model, metrics in model_metrics.items():
-               for metric_name, metric_data in metrics.items():
-                   if 'threshold' in metric_data:
-                       threshold_analysis.append({
-                           'Aspect': aspect,
-                           'Model': model.replace('.tsv', ''),
-                           'Metric': metric_name,
-                           'Optimal_Threshold': metric_data['threshold'],
-                           'Performance': metric_data['value']
-                       })
-   
-   if threshold_analysis:
-       threshold_df = pd.DataFrame(threshold_analysis)
-       
-       # Analyze threshold statistics
-       threshold_stats = threshold_df.groupby(['Aspect', 'Metric'])['Optimal_Threshold'].agg([
-           'mean', 'std', 'min', 'max'
-       ]).round(3)
-       
-       threshold_stats.to_csv(eval_dir / "threshold_statistics.csv")
-       
-       # Find models with consistent thresholds
-       model_threshold_consistency = threshold_df.groupby('Model')['Optimal_Threshold'].agg([
-           'mean', 'std'
-       ]).round(3)
-       model_threshold_consistency['consistency'] = 1 / (1 + model_threshold_consistency['std'])
-       model_threshold_consistency = model_threshold_consistency.sort_values('consistency', ascending=False)
-       
-       model_threshold_consistency.to_csv(eval_dir / "model_threshold_consistency.csv")
-       
-       logger.info("Threshold pattern analysis completed")
+    """Analyze optimal threshold patterns across models and metrics."""
+    
+    eval_dir = experiment_dir / "evaluation_with_ia"
+    threshold_analysis = []
+    
+    for aspect in ['BPO', 'CCO', 'MFO']:
+        model_metrics_file = eval_dir / aspect / "model_best_metrics.json"
+        if model_metrics_file.exists():
+            with open(model_metrics_file, 'r') as f:
+                model_metrics = json.load(f)
+            
+            for model, metrics in model_metrics.items():
+                for metric_name, metric_data in metrics.items():
+                    if 'threshold' in metric_data:
+                        threshold_analysis.append({
+                            'Aspect': aspect,
+                            'Model': clean_model_name(model),
+                            'Metric': metric_name,
+                            'Optimal_Threshold': metric_data['threshold'],
+                            'Performance': metric_data['value']
+                        })
+    
+    if threshold_analysis:
+        threshold_df = pd.DataFrame(threshold_analysis)
+        
+        # Analyze threshold statistics
+        threshold_stats = threshold_df.groupby(['Aspect', 'Metric'])['Optimal_Threshold'].agg([
+            'mean', 'std', 'min', 'max'
+        ]).round(3)
+        
+        threshold_stats.to_csv(eval_dir / "threshold_statistics.csv")
+        
+        # Find models with consistent thresholds
+        model_threshold_consistency = threshold_df.groupby('Model')['Optimal_Threshold'].agg([
+            'mean', 'std'
+        ]).round(3)
+        model_threshold_consistency['consistency'] = 1 / (1 + model_threshold_consistency['std'])
+        model_threshold_consistency = model_threshold_consistency.sort_values('consistency', ascending=False)
+        
+        model_threshold_consistency.to_csv(eval_dir / "model_threshold_consistency.csv")
+        
+        logger.info("Threshold pattern analysis completed")
 
 
 def main():
-   import argparse
-   
-   parser = argparse.ArgumentParser(description="CAFA3 Evaluation with Information Accretion")
-   parser.add_argument('--experiment-dir', type=str,
-                      default='/SAN/bioinf/PFP/PFP/experiments/cafa3_integration',
-                      help='Experiment directory')
-   parser.add_argument('--ia-dir', type=str,
-                      default='/SAN/bioinf/PFP/PFP/experiments/cafa3_integration/ia_files',
-                      help='Directory containing IA files')
-   parser.add_argument('--aspect', type=str, choices=['BPO', 'CCO', 'MFO'],
-                      help='Evaluate specific aspect only')
-   parser.add_argument('--generate-ia', action='store_true',
-                      help='Generate IA files before evaluation')
-   parser.add_argument('--analyze-thresholds', action='store_true',
-                      help='Perform threshold pattern analysis')
-   
-   args = parser.parse_args()
-   
-   # Generate IA files if requested
-   if args.generate_ia:
-       from generate_ia import generate_all_ia_files
-       logger.info("Generating Information Accretion files...")
-       generate_all_ia_files(
-           cafa3_dir="/SAN/bioinf/PFP/dataset/zenodo",
-           output_dir=args.ia_dir
-       )
-   
-   if args.aspect:
-       # Evaluate single aspect
-       run_cafa_evaluation_with_ia(args.aspect, args.experiment_dir, args.ia_dir)
-   else:
-       # Evaluate all aspects
-       for aspect in ['BPO', 'CCO', 'MFO']:
-           logger.info(f"\nEvaluating {aspect} with IA...")
-           try:
-               run_cafa_evaluation_with_ia(aspect, args.experiment_dir, args.ia_dir)
-           except Exception as e:
-               logger.error(f"Failed to evaluate {aspect}: {e}")
-               continue
-   
-   # Create comprehensive report
-   logger.info("\nCreating evaluation reports...")
-   create_comprehensive_evaluation_report(args.experiment_dir)
-   
-   # Analyze threshold patterns if requested
-   if args.analyze_thresholds:
-       logger.info("\nAnalyzing threshold patterns...")
-       analyze_threshold_patterns(Path(args.experiment_dir))
-   
-   logger.info("\nEvaluation complete!")
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="CAFA3 Evaluation with Information Accretion")
+    parser.add_argument('--experiment-dir', type=str,
+                        default='/SAN/bioinf/PFP/PFP/experiments/cafa3_integration',
+                        help='Experiment directory')
+    parser.add_argument('--ia-dir', type=str,
+                        default='/SAN/bioinf/PFP/PFP/experiments/cafa3_integration/ia_files',
+                        help='Directory containing IA files')
+    parser.add_argument('--aspect', type=str, choices=['BPO', 'CCO', 'MFO'],
+                        help='Evaluate specific aspect only')
+    parser.add_argument('--generate-ia', action='store_true',
+                        help='Generate IA files before evaluation')
+    parser.add_argument('--analyze-thresholds', action='store_true',
+                        help='Perform threshold pattern analysis')
+    
+    args = parser.parse_args()
+    
+    # Generate IA files if requested
+    if args.generate_ia:
+        from generate_ia import generate_all_ia_files
+        logger.info("Generating Information Accretion files...")
+        generate_all_ia_files(
+            cafa3_dir="/SAN/bioinf/PFP/dataset/zenodo",
+            output_dir=args.ia_dir
+        )
+    
+    if args.aspect:
+        # Evaluate single aspect
+        run_cafa_evaluation_with_ia(args.aspect, args.experiment_dir, args.ia_dir)
+    else:
+        # Evaluate all aspects
+        for aspect in ['BPO', 'CCO', 'MFO']:
+            logger.info(f"\nEvaluating {aspect} with IA...")
+            try:
+                run_cafa_evaluation_with_ia(aspect, args.experiment_dir, args.ia_dir)
+            except Exception as e:
+                logger.error(f"Failed to evaluate {aspect}: {e}")
+                continue
+    
+    # Create comprehensive report
+    logger.info("\nCreating evaluation reports...")
+    create_comprehensive_evaluation_report(args.experiment_dir)
+    
+    # Analyze threshold patterns if requested
+    if args.analyze_thresholds:
+        logger.info("\nAnalyzing threshold patterns...")
+        analyze_threshold_patterns(Path(args.experiment_dir))
+    
+    logger.info("\nEvaluation complete!")
 
 
 if __name__ == "__main__":
-   main()
+    main()

@@ -403,7 +403,61 @@ def train_epoch_with_fusion(model, train_loader, optimizer, criterion,
             logger.info(f"  {key}: {np.mean(values):.4f}")
     
     return total_loss / len(train_loader)
-
+def validate_with_fusion(model, valid_loader, criterion, metric_tracker, device, cfg):
+    """Modified validation for fusion models that return tuples."""
+    model.eval()
+    total_loss = 0
+    all_predictions = []
+    all_labels = []
+    
+    features = cfg['dataset']['features']
+    fusion_type = cfg['model'].get('fusion_type', 'concat')
+    is_advanced_fusion = fusion_type in ['gated', 'moe', 'transformer', 'contrastive'] and len(features) == 2
+    
+    with torch.no_grad():
+        for batch in valid_loader:
+            names, features_batch, labels = batch
+            labels = labels.to(device)
+            
+            if is_advanced_fusion:
+                # Handle advanced fusion models
+                feat1, feat2 = features
+                input1 = features_batch[feat1].to(device)
+                input2 = features_batch[feat2].to(device)
+                
+                output = model(input1, input2)
+                # Handle tuple return
+                if isinstance(output, tuple):
+                    predictions, _ = output
+                else:
+                    predictions = output
+            else:
+                # Handle other cases (single modality or standard fusion)
+                if len(features) == 1:
+                    feat_name = features[0]
+                    features_input = features_batch[feat_name].to(device)
+                    predictions = model(features_input)
+                else:
+                    # Standard multi-modal
+                    for feat_name in features_batch:
+                        if features_batch[feat_name] is not None:
+                            features_batch[feat_name] = features_batch[feat_name].to(device)
+                    predictions = model(features_batch)
+            
+            loss = criterion(predictions, labels)
+            total_loss += loss.item()
+            
+            all_predictions.append(torch.sigmoid(predictions).cpu())
+            all_labels.append(labels.cpu())
+    
+    # Calculate metrics
+    all_predictions = torch.cat(all_predictions)
+    all_labels = torch.cat(all_labels)
+    
+    metrics = metric_tracker.compute_all_metrics(all_predictions, all_labels)
+    metrics['loss'] = total_loss / len(valid_loader)
+    
+    return metrics
 
 def train_cafa3_model(config_path: str):
     """Train model on CAFA3 dataset with T5 model support."""
@@ -546,75 +600,79 @@ def train_cafa3_model(config_path: str):
     best_fmax = 0.0
     history = []
     
-    for epoch in range(1, cfg['optim']['epochs'] + 1):
-        logger.info(f"\nEpoch {epoch}/{cfg['optim']['epochs']}")
+    # for epoch in range(1, cfg['optim']['epochs'] + 1):
+    #     logger.info(f"\nEpoch {epoch}/{cfg['optim']['epochs']}")
         
-        # Use appropriate training function based on fusion type
-        fusion_type = cfg['model'].get('fusion_type', 'concat')
-        if fusion_type in ['gated', 'moe', 'transformer', 'contrastive'] and len(features) > 1:
-            # Use specialized training for advanced fusion models
-            train_loss = train_epoch_with_fusion(
-                model, train_loader, optimizer, criterion,
-                device, cfg, epoch
-            )
-        else:
-            # Use standard training
-            train_loss = train_epoch(
-                model, train_loader, optimizer, criterion,
-                metric_tracker, device, experiment_type
-            )
+    #     # Use appropriate training function based on fusion type
+    #     fusion_type = cfg['model'].get('fusion_type', 'concat')
+    #     if fusion_type in ['gated', 'moe', 'transformer', 'contrastive'] and len(features) > 1:
+    #         # Use specialized training for advanced fusion models
+    #         train_loss = train_epoch_with_fusion(
+    #             model, train_loader, optimizer, criterion,
+    #             device, cfg, epoch
+    #         )
+    #         # Use modified validation for fusion models
+    #         val_metrics = validate_with_fusion(
+    #             model, valid_loader, criterion,
+    #             metric_tracker, device, cfg
+    #         )
         
-        # Validate
-        val_metrics = validate(
-            model, valid_loader, criterion,
-            metric_tracker, device, experiment_type
-        )
+    #     else:
+    #         # Use standard training and validation
+    #         train_loss = train_epoch(
+    #             model, train_loader, optimizer, criterion,
+    #             metric_tracker, device, experiment_type
+    #         )
+    #         val_metrics = validate(
+    #             model, valid_loader, criterion,
+    #             metric_tracker, device, experiment_type
+    #         )
         
-        # Log metrics
-        logger.info(f"Train Loss: {train_loss:.4f}")
-        logger.info(f"Valid Loss: {val_metrics['loss']:.4f}")
-        logger.info(f"Valid F-max: {val_metrics.get('Fmax_protein', 0):.4f}")
-        logger.info(f"Valid mAP: {val_metrics.get('macro_AP', 0):.4f}")
+    #     # Log metrics
+    #     logger.info(f"Train Loss: {train_loss:.4f}")
+    #     logger.info(f"Valid Loss: {val_metrics['loss']:.4f}")
+    #     logger.info(f"Valid F-max: {val_metrics.get('Fmax_protein', 0):.4f}")
+    #     logger.info(f"Valid mAP: {val_metrics.get('macro_AP', 0):.4f}")
         
-        # Save history
-        history.append({
-            'epoch': epoch,
-            'train_loss': train_loss,
-            **val_metrics
-        })
+    #     # Save history
+    #     history.append({
+    #         'epoch': epoch,
+    #         'train_loss': train_loss,
+    #         **val_metrics
+    #     })
         
-        # Early stopping
-        current_fmax = val_metrics.get('Fmax_protein', 0)
-        early_stop(-current_fmax, current_fmax, model)
+    #     # Early stopping
+    #     current_fmax = val_metrics.get('Fmax_protein', 0)
+    #     early_stop(-current_fmax, current_fmax, model)
         
-        if current_fmax > best_fmax:
-            best_fmax = current_fmax
-            # Save best model
-            torch.save({
-                'model_state_dict': model.state_dict(),
-                'epoch': epoch,
-                'best_fmax': best_fmax,
-                'config': cfg
-            }, output_dir / 'best_model.pt')
+    #     if current_fmax > best_fmax:
+    #         best_fmax = current_fmax
+    #         # Save best model
+    #         torch.save({
+    #             'model_state_dict': model.state_dict(),
+    #             'epoch': epoch,
+    #             'best_fmax': best_fmax,
+    #             'config': cfg
+    #         }, output_dir / 'best_model.pt')
         
-        if early_stop.stop():
-            logger.info(f"Early stopping at epoch {epoch}")
-            break
+    #     if early_stop.stop():
+    #         logger.info(f"Early stopping at epoch {epoch}")
+    #         break
     
-    # Save final results
-    with open(output_dir / 'final_metrics.json', 'w') as f:
-        json.dump({
-            'best_Fmax_protein': best_fmax,
-            'final_epoch': epoch,
-            'experiment': cfg['experiment_name'],
-            'features': features
-        }, f, indent=2)
+    # # Save final results
+    # with open(output_dir / 'final_metrics.json', 'w') as f:
+    #     json.dump({
+    #         'best_Fmax_protein': best_fmax,
+    #         'final_epoch': epoch,
+    #         'experiment': cfg['experiment_name'],
+    #         'features': features
+    #     }, f, indent=2)
     
-    # Save training history
-    import pandas as pd
-    pd.DataFrame(history).to_csv(output_dir / 'training_history.csv', index=False)
+    # # Save training history
+    # import pandas as pd
+    # pd.DataFrame(history).to_csv(output_dir / 'training_history.csv', index=False)
     
-    logger.info(f"Training complete! Best F-max: {best_fmax:.4f}")
+    # logger.info(f"Training complete! Best F-max: {best_fmax:.4f}")
     
     # Generate predictions for test set
     generate_test_predictions(model, cfg, device, output_dir, experiment_type)
@@ -630,6 +688,7 @@ def generate_test_predictions(model, cfg, device, output_dir, experiment_type):
     aspect = cfg['experiment_name'].split('_')[-1]
     data_dir = Path(cfg['dataset']['train_names']).parent
     features = cfg['dataset']['features']
+    fusion_type = cfg['model'].get('fusion_type', 'concat')
     
     embeddings_dir = {
         'esm': '/SAN/bioinf/PFP/embeddings/cafa3/esm',
@@ -671,6 +730,10 @@ def generate_test_predictions(model, cfg, device, output_dir, experiment_type):
     model.eval()
     all_predictions = []
     all_names = []
+    
+    # Determine if we're using advanced fusion
+    is_advanced_fusion = (fusion_type in ['gated', 'moe', 'transformer', 'contrastive'] 
+                         and len(features) == 2)
 
     with torch.no_grad():
         for batch in tqdm(test_loader, desc="Generating predictions"):
@@ -693,14 +756,20 @@ def generate_test_predictions(model, cfg, device, output_dir, experiment_type):
                 logits = model(features_batch)
             else:
                 # Multi-modal
-                # Handle advanced fusion models
-                if len(features) == 2:
+                if is_advanced_fusion:
+                    # Advanced fusion models expect two inputs
                     feat1, feat2 = features
                     input1 = features_batch[feat1].to(device)
                     input2 = features_batch[feat2].to(device)
-                    logits, _ = model(input1, input2)
+                    
+                    output = model(input1, input2)
+                    # Advanced fusion models return tuple
+                    if isinstance(output, tuple):
+                        logits, _ = output
+                    else:
+                        logits = output
                 else:
-                    # Standard multi-modal
+                    # Standard multi-modal fusion expects dictionary
                     for feat_name in features_batch:
                         if feat_name == 'structure' and features_batch[feat_name] is not None:
                             for key in features_batch[feat_name]:
