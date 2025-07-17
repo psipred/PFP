@@ -1,4 +1,5 @@
 import torch
+from tqdm import tqdm
 import torch.nn as nn
 import torch.nn.functional as F
 import math
@@ -850,3 +851,346 @@ class MultiModalContrastiveLoss(nn.Module):
             'similarity_loss': similarity_loss.item() if torch.is_tensor(similarity_loss) else similarity_loss,
             'total_loss': total_loss.item()
         }
+
+
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+from collections import defaultdict
+
+class EnhancedGatedFusion(nn.Module):
+    """Fixed Gated Fusion with better initialization and no pre-sigmoid normalization."""
+    
+    def __init__(self, esm_dim=1280, text_dim=768, hidden_dim=512, output_dim=677,
+                 freeze_gates=False, gate_temperature=1.0, init_gate_bias=-2.0):
+        super().__init__()
+        
+        # Modality transformations
+        self.esm_transform = nn.Sequential(
+            nn.Linear(esm_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        self.text_transform = nn.Sequential(
+            nn.Linear(text_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        # Gate temperature
+        self.gate_temperature = gate_temperature  # Fixed value, not learnable initially
+        
+        # Gating networks - IMPROVED
+        self.esm_gate = nn.Sequential(
+            nn.Linear(esm_dim + text_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim)  # No activation here
+        )
+        
+        self.text_gate = nn.Sequential(
+            nn.Linear(esm_dim + text_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim)  # No activation here
+        )
+        
+        # Initialize gates with different biases to break symmetry
+        with torch.no_grad():
+            # ESM gate slightly positive bias (favor ESM initially)
+            self.esm_gate[-1].bias.data.fill_(0.5)
+            # Text gate slightly negative bias (less text initially)
+            self.text_gate[-1].bias.data.fill_(-0.5)
+        
+        # Auxiliary heads
+        self.esm_aux_head = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim // 2, output_dim)
+        )
+        
+        self.text_aux_head = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim // 2, output_dim)
+        )
+        
+        # Main fusion
+        self.fusion = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim, output_dim)
+        )
+        
+        # No residual initially to encourage gate learning
+        self.use_residual = False
+        self.freeze_gates = freeze_gates
+        
+    def forward(self, esm_features, text_features):
+        batch_size = esm_features.size(0)
+        device = esm_features.device
+        
+        # Transform features
+        esm_hidden = self.esm_transform(esm_features)
+        text_hidden = self.text_transform(text_features)
+        
+        # Compute gates
+        concat_features = torch.cat([esm_features, text_features], dim=-1)
+        
+        if self.freeze_gates:
+            esm_gate = torch.full_like(esm_hidden, 0.5)
+            text_gate = torch.full_like(text_hidden, 0.5)
+        else:
+            # Raw gate logits
+            esm_gate_logits = self.esm_gate(concat_features)
+            text_gate_logits = self.text_gate(concat_features)
+            
+            # Apply temperature and sigmoid (no layer norm!)
+            esm_gate = torch.sigmoid(esm_gate_logits / self.gate_temperature)
+            text_gate = torch.sigmoid(text_gate_logits / self.gate_temperature)
+        
+        # Apply gates
+        gated_esm = esm_hidden * esm_gate
+        gated_text = text_hidden * text_gate
+        
+        # Add small residual if enabled
+        if self.use_residual:
+            gated_esm = gated_esm + 0.1 * esm_hidden
+            gated_text = gated_text + 0.1 * text_hidden
+        
+        # Auxiliary predictions
+        esm_aux = self.esm_aux_head(esm_hidden)
+        text_aux = self.text_aux_head(text_hidden)
+        
+        # Main fusion
+        fused = torch.cat([gated_esm, gated_text], dim=-1)
+        main_output = self.fusion(fused)
+        
+        # Detailed gate statistics
+        gate_stats = {
+            'esm_gate_mean': esm_gate.mean(dim=-1),
+            'text_gate_mean': text_gate.mean(dim=-1),
+            'esm_gate_std': esm_gate.std(dim=-1),
+            'text_gate_std': text_gate.std(dim=-1),
+            'gate_diff': (esm_gate - text_gate).mean(dim=-1),
+            'esm_aux': esm_aux,
+            'text_aux': text_aux,
+            'esm_gate_raw': esm_gate,  # Full gate values for debugging
+            'text_gate_raw': text_gate,
+            'temperature': self.gate_temperature
+        }
+        
+        return main_output, gate_stats
+class GateDiagnostics:
+    """Diagnostics for gate behavior analysis."""
+    
+    def __init__(self):
+        self.gate_history = defaultdict(list)
+        self.protein_gate_patterns = defaultdict(dict)
+        self.go_term_preferences = defaultdict(lambda: defaultdict(list))
+        
+    def update(self, names, gate_stats, labels, go_terms):
+        """Update diagnostics with batch data."""
+        esm_gates = gate_stats['esm_gate_mean'].detach().cpu().numpy()
+        text_gates = gate_stats['text_gate_mean'].detach().cpu().numpy()
+        
+        for i, name in enumerate(names):
+            # Store gate values for each protein
+            self.protein_gate_patterns[name] = {
+                'esm_gate': float(esm_gates[i]),
+                'text_gate': float(text_gates[i]),
+                'preference': 'esm' if esm_gates[i] > text_gates[i] else 'text',
+                'difference': float(esm_gates[i] - text_gates[i])
+            }
+            
+            # Track GO term preferences
+            active_terms = torch.where(labels[i] > 0)[0].cpu().numpy()
+
+
+            for term_idx in active_terms:
+                go_term = go_terms[term_idx]
+                self.go_term_preferences[go_term]['esm_gates'].append(float(esm_gates[i]))
+                self.go_term_preferences[go_term]['text_gates'].append(float(text_gates[i]))
+        
+        # Global statistics
+        self.gate_history['esm_mean'].append(float(esm_gates.mean()))
+        self.gate_history['text_mean'].append(float(text_gates.mean()))
+        self.gate_history['esm_std'].append(float(esm_gates.std()))
+        self.gate_history['text_std'].append(float(text_gates.std()))
+    
+    def analyze_patterns(self):
+        """Analyze gate patterns."""
+        patterns = {
+            'global_stats': {
+                'esm_mean': np.mean(self.gate_history['esm_mean']),
+                'text_mean': np.mean(self.gate_history['text_mean']),
+                'esm_dominance': sum(1 for p in self.protein_gate_patterns.values() 
+                                    if p['preference'] == 'esm') / len(self.protein_gate_patterns)
+            },
+            'go_term_preferences': {},
+            'extreme_cases': {
+                'strong_esm': [],
+                'strong_text': [],
+                'balanced': []
+            }
+        }
+        
+        # Analyze GO term preferences
+        for go_term, gates in self.go_term_preferences.items():
+            if len(gates['esm_gates']) > 5:  # Need enough samples
+                esm_mean = np.mean(gates['esm_gates'])
+                text_mean = np.mean(gates['text_gates'])
+                patterns['go_term_preferences'][go_term] = {
+                    'esm_preference': float(esm_mean),
+                    'text_preference': float(text_mean),
+                    'modality': 'esm' if esm_mean > text_mean else 'text'
+                }
+        
+        # Find extreme cases
+        for name, gates in self.protein_gate_patterns.items():
+            diff = abs(gates['difference'])
+            if diff > 0.3:
+                if gates['preference'] == 'esm':
+                    patterns['extreme_cases']['strong_esm'].append(name)
+                else:
+                    patterns['extreme_cases']['strong_text'].append(name)
+            elif diff < 0.1:
+                patterns['extreme_cases']['balanced'].append(name)
+        
+        return patterns
+
+
+def train_epoch_with_diagnostics(model, loader, optimizer, criterion, device, cfg, epoch, diagnostics, go_terms):
+    """Enhanced training with diagnostics."""
+    model.train()
+    total_loss = 0
+    aux_weight = cfg['model'].get('aux_loss_weight', 0.3)
+    
+    pbar = tqdm(loader, desc=f"Epoch {epoch}", unit="batch")
+    for batch_idx, batch in enumerate(pbar):
+        names, features_batch, labels = batch
+        labels = labels.to(device)
+        
+        # Forward pass
+
+        feat1, feat2 = cfg['dataset']['features']
+        predictions, gate_stats = model(
+            features_batch[feat1].to(device), 
+            features_batch[feat2].to(device)
+        )
+        
+        # Main loss
+        main_loss = criterion(predictions, labels)
+        
+        # Auxiliary losses  
+        esm_aux_loss = criterion(gate_stats['esm_aux'], labels)
+        text_aux_loss = criterion(gate_stats['text_aux'], labels)
+        aux_loss = aux_weight * (esm_aux_loss + text_aux_loss) / 2
+        
+        # Total loss
+        
+        loss = main_loss + aux_loss
+        
+        # Gradient penalty for balanced gates (optional)
+        if cfg['model'].get('gate_balance_penalty', 0) > 0:
+            gate_diff = gate_stats['gate_diff'].abs().mean()
+            loss += cfg['model']['gate_balance_penalty'] * gate_diff
+        
+        # Update diagnostics
+        diagnostics.update(names, gate_stats, labels, go_terms)
+        
+        # Backward pass
+        optimizer.zero_grad()
+        loss.backward()
+        
+        # Gradient monitoring
+        if epoch % 10 == 0 and cfg.get('monitor_gradients', False):
+            monitor_gradients(model)
+        
+        torch.nn.utils.clip_grad_norm_(model.parameters(), cfg['optim'].get('gradient_clip', 1.0))
+        optimizer.step()
+        
+        total_loss += loss.item()
+        # Update progress bar every 10 batches
+        if (batch_idx + 1) % 100 == 0:
+            print( main_loss, aux_loss, esm_aux_loss, text_aux_loss, aux_weight, loss)
+            pbar.set_postfix({'loss': loss.item()})
+    
+    return total_loss / len(loader)
+
+
+def monitor_gradients(model):
+    """Monitor gradient flow through the model."""
+    grad_stats = {}
+    
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            grad_norm = param.grad.norm().item()
+            grad_stats[name] = {
+                'norm': grad_norm,
+                'mean': param.grad.mean().item(),
+                'std': param.grad.std().item()
+            }
+    
+    # Check for dead gradients
+    esm_grad = np.mean([v['norm'] for k, v in grad_stats.items() if 'esm' in k])
+    text_grad = np.mean([v['norm'] for k, v in grad_stats.items() if 'text' in k])
+    
+    if esm_grad < 1e-7:
+        print("WARNING: Dead gradients in ESM branch!")
+    if text_grad < 1e-7:
+        print("WARNING: Dead gradients in text branch!")
+
+
+def staged_training(model, train_loader, valid_loader, cfg, device, diagnostics, go_terms):
+    """Staged training approach."""
+    criterion = nn.BCEWithLogitsLoss()
+    
+    # Stage 1: Train modality encoders only
+    print("Stage 1: Training modality encoders...")
+    encoder_params = []
+    for name, param in model.named_parameters():
+        if 'transform' in name or 'aux_head' in name:
+            param.requires_grad = True
+            encoder_params.append(param)
+        else:
+            param.requires_grad = False
+    
+    optimizer = torch.optim.AdamW(encoder_params, lr=cfg['optim']['lr'])
+    for epoch in range(cfg['staged'].get('encoder_epochs', 5)):
+        train_epoch_with_diagnostics(model, train_loader, optimizer, criterion, device, cfg, epoch, diagnostics, go_terms)
+    
+    # Stage 2: Train fusion only
+    print("Stage 2: Training fusion mechanism...")
+    fusion_params = []
+    for name, param in model.named_parameters():
+        if 'gate' in name or 'fusion' in name:
+            param.requires_grad = True
+            fusion_params.append(param)
+        else:
+            param.requires_grad = False
+    
+    optimizer = torch.optim.AdamW(fusion_params, lr=cfg['optim']['lr'] * 0.5)
+    for epoch in range(cfg['staged'].get('fusion_epochs', 5)):
+        train_epoch_with_diagnostics(model, train_loader, optimizer, criterion, device, cfg, epoch, diagnostics, go_terms)
+    
+    # Stage 3: Fine-tune everything
+    print("Stage 3: Fine-tuning all parameters...")
+    for param in model.parameters():
+        param.requires_grad = True
+    
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg['optim']['lr'] * 0.1)
+    return optimizer

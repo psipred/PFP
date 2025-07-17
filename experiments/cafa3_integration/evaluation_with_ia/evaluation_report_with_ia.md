@@ -42,6 +42,7 @@
 | ESM_PROTT5_transformer_BPO |  0.5409 |           21 |       0.4    |                22 | 20.6735 |           21 |       8.5683 |                20 |      21    |
 | rank_average_BPO           |  0.5156 |           23 |       0.4061 |                20 | 25.4336 |           24 |       9.9494 |                24 |      22.75 |
 | stacking_BPO               |  0.4024 |           24 |       0.2312 |                24 | 24.1748 |           23 |       9.5708 |                23 |      23.5  |
+| ESM_TEXT_gated_BPO         |  0.2346 |           25 |       0.0974 |                25 | 29.0398 |           25 |      10.0745 |                25 |      25    |
 
 ### CCO
 
@@ -145,6 +146,7 @@
 |     22 | ESM_PROTT5_contrastive_BPO |      0.5338 |      0.559  |   0.5108 |     1      |        0.5  |
 |     23 | rank_average_BPO           |      0.5156 |      0.4226 |   0.6611 |     1      |        0.99 |
 |     24 | stacking_BPO               |      0.4024 |      0.5059 |   0.3341 |     1      |        0.36 |
+|     25 | ESM_TEXT_gated_BPO         |      0.2346 |      0.1819 |   0.3302 |     0.9904 |        0.78 |
 
 ### All Models by F-measure (IA-weighted)
 
@@ -174,6 +176,7 @@
 |     22 | ESM_PROTT5_transformer_BPO |                 0.4    |                 0.4326 |              0.372  |                0.9937 |        0.52 |
 |     23 | ESM_PROTT5_contrastive_BPO |                 0.3914 |                 0.3877 |              0.3952 |                0.9933 |        0.4  |
 |     24 | stacking_BPO               |                 0.2312 |                 0.1917 |              0.291  |                1      |        0.19 |
+|     25 | ESM_TEXT_gated_BPO         |                 0.0974 |                 0.0735 |              0.1442 |                0.9904 |        0.78 |
 
 ## CCO Detailed Results
 
