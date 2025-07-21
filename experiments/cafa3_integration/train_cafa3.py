@@ -25,6 +25,7 @@ sys.path.append('/SAN/bioinf/PFP/PFP')
 
 from Network.base_go_classifier import BaseGOClassifier
 from Network.model_utils import EarlyStop
+sys.path.append('/SAN/bioinf/PFP/PFP/experiments/cafa3_integration')
 from fusion_models import (
     ConcatFusion,
     GatedMultimodalFusion, 
@@ -50,35 +51,49 @@ def collate_batch(batch):
 
 
 class CAFA3Dataset(Dataset):
-    """Unified dataset for CAFA3 supporting all embeddings."""
+    """Unified CAFA3 dataset with optional in‑memory caching of embeddings."""
     
     def __init__(self, names_file, labels_file, features, embeddings_dir):
         self.names = np.load(names_file, allow_pickle=True)
         self.labels = torch.from_numpy(ssp.load_npz(labels_file).toarray()).float()
         self.features = features
         self.embeddings_dir = embeddings_dir
+        # Per‑feature in‑memory cache: {feat: {protein_id: torch.Tensor}}
+        self._cache: Dict[str, Dict[str, torch.Tensor]] = {feat: {} for feat in self.features}
         
     def __len__(self):
         return len(self.names)
+    
+    def _load_embedding(self, feat: str, name: str) -> torch.Tensor:
+        """
+        Return the embedding tensor for a single (feat, protein) pair,
+        using an in‑memory cache to avoid repeated disk I/O.
+        """
+        # Check cache first
+        if name in self._cache[feat]:
+            return self._cache[feat][name]
+
+        emb_file = Path(self.embeddings_dir[feat]) / f"{name}.npy"
+        if not emb_file.exists():
+            # Preserve original behaviour on missing file
+            exit(f"Embedding file not found: {emb_file}")
+
+        data = np.load(emb_file, allow_pickle=True).item()
+        emb = data['embedding'] if isinstance(data, dict) else data
+        if emb.ndim == 2:   # average pooling if needed
+            emb = emb.mean(axis=0)
+
+        tensor = torch.from_numpy(emb).float()
+
+        # Cache and return
+        self._cache[feat][name] = tensor
+        return tensor
         
     def __getitem__(self, idx):
         name = self.names[idx]
         label = self.labels[idx]
-        
-        features_dict = {}
-        for feat in self.features:
-            emb_file = Path(self.embeddings_dir[feat]) / f"{name}.npy"
-            if emb_file.exists():
-                data = np.load(emb_file, allow_pickle=True).item()
-                emb = data['embedding'] if isinstance(data, dict) else data
-                if emb.ndim == 2:
-                    emb = emb.mean(axis=0)
-                features_dict[feat] = torch.from_numpy(emb).float()
-            else:
-                # Use zero embedding if file not found
-                dim = {'esm': 1280, 'prott5': 1024, 'prostt5': 1024, 'text': 768}[feat]
-                features_dict[feat] = torch.zeros(dim)
-                
+        # Build feature dict using cached loads
+        features_dict = {feat: self._load_embedding(feat, name) for feat in self.features}
         return name, features_dict, label
 
 
