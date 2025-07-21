@@ -1,0 +1,15 @@
+{
+  "model": "0_baseline_prott5",
+  "aspect": "BPO",
+  "best_fmax": 0.48096710443496704,
+  "final_epoch": 32,
+  "interpretability_summary": {
+    "feature_magnitude": {
+      "mean": 1.3211944436127285,
+      "std": 0.05059898814944043,
+      "min": 1.2151620388031006,
+      "max": 1.5141017436981201,
+      "median": 1.3132927417755127
+    }
+  }
+}

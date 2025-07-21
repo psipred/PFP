@@ -1,0 +1,15 @@
+{
+  "model": "0_baseline_esm",
+  "aspect": "MFO",
+  "best_fmax": 0.6497671604156494,
+  "final_epoch": 20,
+  "interpretability_summary": {
+    "feature_magnitude": {
+      "mean": 7.180774017119072,
+      "std": 0.21497853545027248,
+      "min": 6.587937831878662,
+      "max": 8.63992691040039,
+      "median": 7.19002628326416
+    }
+  }
+}

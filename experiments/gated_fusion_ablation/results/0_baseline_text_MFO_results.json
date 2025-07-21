@@ -1,0 +1,15 @@
+{
+  "model": "0_baseline_text",
+  "aspect": "MFO",
+  "best_fmax": 0.5988332033157349,
+  "final_epoch": 20,
+  "interpretability_summary": {
+    "feature_magnitude": {
+      "mean": 30.237415036125363,
+      "std": 0.3013199827348407,
+      "min": 29.26338005065918,
+      "max": 31.4599666595459,
+      "median": 30.258413314819336
+    }
+  }
+}

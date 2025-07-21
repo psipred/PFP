@@ -1,0 +1,15 @@
+{
+  "model": "0_baseline_prott5",
+  "aspect": "MFO",
+  "best_fmax": 0.6573531627655029,
+  "final_epoch": 20,
+  "interpretability_summary": {
+    "feature_magnitude": {
+      "mean": 1.298308661845928,
+      "std": 0.049826417220177714,
+      "min": 1.2092196941375732,
+      "max": 1.5548171997070312,
+      "median": 1.2922720909118652
+    }
+  }
+}
