@@ -520,6 +520,572 @@ class FullGatedFusion(AblationModel):
         return output, self.interpretability_data
 
 
+class AdaptiveGatedFusion(AblationModel):
+    """Level 6: Adaptive gating with temperature control and better regularization."""
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        
+        # Transform features
+        self.text_transform = nn.Sequential(
+            nn.Linear(self.text_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        self.prott5_transform = nn.Sequential(
+            nn.Linear(self.prott5_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        # Adaptive gates with temperature
+        self.text_gate = nn.Sequential(
+            nn.Linear(self.text_dim, self.hidden_dim // 2),
+            nn.LayerNorm(self.hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(0.2),  # Add dropout for regularization
+            nn.Linear(self.hidden_dim // 2, 1)
+        )
+        
+        self.prott5_gate = nn.Sequential(
+            nn.Linear(self.prott5_dim, self.hidden_dim // 2),
+            nn.LayerNorm(self.hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(0.2),  # Add dropout for regularization
+            nn.Linear(self.hidden_dim // 2, 1)
+        )
+        
+        # Learnable temperature parameters for adaptive gating
+        self.temperature = nn.Parameter(torch.ones(1) * 2.0)
+        
+        # Context-aware gate adjustment
+        self.gate_adjuster = nn.Sequential(
+            nn.Linear(self.text_dim + self.prott5_dim, self.hidden_dim // 2),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim // 2, 2),  # Adjustment factors for each gate
+            nn.Tanh()  # Output in [-1, 1] for adjustment
+        )
+        
+        self.fusion = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, self.output_dim)
+        )
+        
+    def compute_adaptive_gates(self, text_features, prott5_features):
+        """Compute gates with temperature scaling and adaptive adjustment."""
+        # Base gate values
+        text_gate_logit = self.text_gate(text_features).squeeze(-1)
+        prott5_gate_logit = self.prott5_gate(prott5_features).squeeze(-1)
+        
+        # Get context-aware adjustments
+        concat_features = torch.cat([text_features, prott5_features], dim=-1)
+        adjustments = self.gate_adjuster(concat_features)
+        
+        # Apply adjustments to logits
+        text_gate_logit = text_gate_logit + adjustments[:, 0] * 0.5
+        prott5_gate_logit = prott5_gate_logit + adjustments[:, 1] * 0.5
+        
+        # Stack for softmax (ensures gates sum to 1)
+        gate_logits = torch.stack([text_gate_logit, prott5_gate_logit], dim=-1)
+        
+        # Apply temperature-controlled softmax
+        gates = F.softmax(gate_logits / self.temperature, dim=-1)
+        
+        return gates[:, 0].unsqueeze(-1), gates[:, 1].unsqueeze(-1)
+        
+    def forward(self, text_features, prott5_features, esm_features=None):
+        # Transform features
+        text_hidden = self.text_transform(text_features)
+        prott5_hidden = self.prott5_transform(prott5_features)
+        
+        # Compute adaptive gates
+        text_gate, prott5_gate = self.compute_adaptive_gates(text_features, prott5_features)
+        
+        # Apply gates
+        gated_text = text_hidden * text_gate
+        gated_prott5 = prott5_hidden * prott5_gate
+        
+        # Fuse
+        fused = torch.cat([gated_text, gated_prott5], dim=-1)
+        output = self.fusion(fused)
+        
+        # Interpretability data
+        self.interpretability_data = {
+            'text_gate_mean': text_gate.mean().item(),
+            'prott5_gate_mean': prott5_gate.mean().item(),
+            'temperature': self.temperature.item(),
+            'gate_sum': (text_gate + prott5_gate).mean().item(),  # Should be ~1.0
+            'gate_entropy': -(text_gate * torch.log(text_gate + 1e-8) + 
+                             prott5_gate * torch.log(prott5_gate + 1e-8)).mean().item(),
+            'gate_variance': {
+                'text': text_gate.var().item(),
+                'prott5': prott5_gate.var().item()
+            }
+        }
+        
+        return output, self.interpretability_data
+
+
+# Add this to ablation_study.py in the __init__ method after defining ablation_models:
+# '6_adaptive_gated': AdaptiveGatedFusion()
+
+class AttentionFusion(AblationModel):
+    """Level 7: Multi-head attention fusion between text and prott5."""
+    
+    def __init__(self, num_heads=8, **kwargs):
+        super().__init__(**kwargs)
+        self.num_heads = num_heads
+        
+        # Transform modalities to same dimension
+        self.text_transform = nn.Linear(self.text_dim, self.hidden_dim)
+        self.prott5_transform = nn.Linear(self.prott5_dim, self.hidden_dim)
+        
+        # Multi-head cross-attention
+        self.cross_attention = nn.MultiheadAttention(
+            embed_dim=self.hidden_dim,
+            num_heads=num_heads,
+            dropout=0.1,
+            batch_first=True
+        )
+        
+        # Modality-specific processors with residual
+        self.text_processor = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        self.prott5_processor = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        # Adaptive weighting based on attention scores
+        self.weight_predictor = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim, 2),
+            nn.Softmax(dim=-1)
+        )
+        
+        # Multi-scale fusion layers
+        self.scale_layers = nn.ModuleList([
+            nn.Linear(self.hidden_dim, self.hidden_dim // (2**i))
+            for i in range(3)  # 512, 256, 128
+        ])
+        
+        # Final fusion with all scales
+        total_dim = self.hidden_dim + self.hidden_dim // 2 + self.hidden_dim // 4
+        self.final_fusion = nn.Sequential(
+            nn.Linear(total_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, self.output_dim)
+        )
+        
+    def forward(self, text_features, prott5_features, esm_features=None):
+        # Transform both modalities
+        text_h = self.text_transform(text_features)
+        prott5_h = self.prott5_transform(prott5_features)
+        
+        # Stack for attention (batch, 2, hidden_dim)
+        modalities = torch.stack([text_h, prott5_h], dim=1)
+        
+        # Cross-attention between modalities
+        attended, attention_weights = self.cross_attention(
+            modalities, modalities, modalities,
+            need_weights=True,
+            average_attn_weights=True
+        )
+        
+        # Process each attended modality
+        text_processed = self.text_processor(attended[:, 0])
+        prott5_processed = self.prott5_processor(attended[:, 1])
+        
+        # Add residual connections
+        text_processed = text_processed + text_h * 0.1
+        prott5_processed = prott5_processed + prott5_h * 0.1
+        
+        # Adaptive weighting
+        concat_processed = torch.cat([text_processed, prott5_processed], dim=-1)
+        weights = self.weight_predictor(concat_processed)
+        
+        # Weighted combination
+        weighted = text_processed * weights[:, 0:1] + prott5_processed * weights[:, 1:2]
+        
+        # Multi-scale representations
+        scales = []
+        for scale_layer in self.scale_layers:
+            scales.append(scale_layer(weighted))
+        
+        # Concatenate all scales
+        multi_scale = torch.cat(scales, dim=-1)
+        
+        # Final prediction
+        output = self.final_fusion(multi_scale)
+        
+        # Interpretability
+        self.interpretability_data = {
+            'text_weight': weights[:, 0].mean().item(),
+            'prott5_weight': weights[:, 1].mean().item(),
+            'attention_text_to_prott5': attention_weights[:, 0, 1].mean().item(),
+            'attention_prott5_to_text': attention_weights[:, 1, 0].mean().item(),
+            'weight_variance': weights.var(dim=0).mean().item()
+        }
+        
+        return output, self.interpretability_data
+
+
+class HierarchicalFusion(AblationModel):
+    """Level 8: Hierarchical fusion inspired by GO structure with regularization."""
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        
+        # First level: modality-specific encoding
+        self.text_encoder = nn.Sequential(
+            nn.Linear(self.text_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        self.prott5_encoder = nn.Sequential(
+            nn.Linear(self.prott5_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        # Second level: interaction layer
+        self.interaction_layer = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.15)
+        )
+        
+        # Hierarchical gates for different GO levels
+        self.hierarchical_gates = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(self.hidden_dim * 2, self.hidden_dim // 2),
+                nn.ReLU(),
+                nn.Linear(self.hidden_dim // 2, 2),
+                nn.Softmax(dim=-1)
+            ) for _ in range(3)  # 3 levels of hierarchy
+        ])
+        
+        # Third level: global fusion with skip connections
+        self.global_fusion = nn.Sequential(
+            nn.Linear(self.hidden_dim * 3, self.hidden_dim),  # 2 modalities + interaction
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        # Aspect-aware projection
+        self.aspect_projection = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(self.hidden_dim, self.output_dim)
+        )
+        
+        # Regularization: feature diversity loss weight
+        self.diversity_weight = 0.01
+        
+    def compute_diversity_loss(self, text_enc, prott5_enc):
+        """Encourage diversity between feature representations."""
+        sim = F.cosine_similarity(text_enc, prott5_enc, dim=-1)
+        return sim.mean()
+    
+    def forward(self, text_features, prott5_features, esm_features=None):
+        # Level 1: Encode modalities
+        text_enc = self.text_encoder(text_features)
+        prott5_enc = self.prott5_encoder(prott5_features)
+        
+        # Level 2: Interaction
+        interaction_input = torch.cat([text_enc, prott5_enc], dim=-1)
+        interaction = self.interaction_layer(interaction_input)
+        
+        # Hierarchical gating at different levels
+        hierarchical_outputs = []
+        for i, gate_module in enumerate(self.hierarchical_gates):
+            gates = gate_module(interaction_input)
+            level_output = gates[:, 0:1] * text_enc + gates[:, 1:2] * prott5_enc
+            hierarchical_outputs.append(level_output)
+        
+        # Average hierarchical outputs
+        hierarchical_fusion = torch.stack(hierarchical_outputs).mean(dim=0)
+        
+        # Level 3: Global fusion with skip connections
+        global_input = torch.cat([text_enc, prott5_enc, interaction], dim=-1)
+        global_features = self.global_fusion(global_input)
+        
+        # Combine with hierarchical fusion
+        final_features = global_features + 0.1 * hierarchical_fusion
+        output = self.aspect_projection(final_features)
+        
+        # Compute diversity loss for regularization
+        diversity_loss = self.compute_diversity_loss(text_enc, prott5_enc)
+        
+        # Interpretability
+        gate_stats = []
+        for i, gates in enumerate(hierarchical_outputs):
+            gate_module = self.hierarchical_gates[i]
+            g = gate_module(interaction_input)
+            gate_stats.append({
+                'text_gate': g[:, 0].mean().item(),
+                'prott5_gate': g[:, 1].mean().item()
+            })
+        
+        self.interpretability_data = {
+            'level_0_text_gate': gate_stats[0]['text_gate'],
+            'level_1_text_gate': gate_stats[1]['text_gate'],
+            'level_2_text_gate': gate_stats[2]['text_gate'],
+            'diversity_loss': diversity_loss.item(),
+            'feature_magnitudes': {
+                'text': text_enc.norm(dim=-1).mean().item(),
+                'prott5': prott5_enc.norm(dim=-1).mean().item(),
+                'interaction': interaction.norm(dim=-1).mean().item()
+            }
+        }
+        
+        # Add diversity loss to regularize (if training)
+        if self.training:
+            output = output - self.diversity_weight * diversity_loss.unsqueeze(-1)
+        
+        return output, self.interpretability_data
+
+
+class HierarchicalFusion(AblationModel):
+    """Level 8: Hierarchical fusion inspired by GO structure with regularization."""
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        
+        # First level: modality-specific encoding
+        self.text_encoder = nn.Sequential(
+            nn.Linear(self.text_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        self.prott5_encoder = nn.Sequential(
+            nn.Linear(self.prott5_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        # Second level: interaction layer
+        self.interaction_layer = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.15)
+        )
+        
+        # Hierarchical gates for different GO levels
+        self.hierarchical_gates = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(self.hidden_dim * 2, self.hidden_dim // 2),
+                nn.ReLU(),
+                nn.Linear(self.hidden_dim // 2, 2),
+                nn.Softmax(dim=-1)
+            ) for _ in range(3)  # 3 levels of hierarchy
+        ])
+        
+        # Third level: global fusion with skip connections
+        self.global_fusion = nn.Sequential(
+            nn.Linear(self.hidden_dim * 3, self.hidden_dim),  # 2 modalities + interaction
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        # Aspect-aware projection
+        self.aspect_projection = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(self.hidden_dim, self.output_dim)
+        )
+        
+        # Regularization: feature diversity loss weight
+        self.diversity_weight = 0.01
+        
+    def compute_diversity_loss(self, text_enc, prott5_enc):
+        """Encourage diversity between feature representations."""
+        sim = F.cosine_similarity(text_enc, prott5_enc, dim=-1)
+        return sim.mean()
+    
+    def forward(self, text_features, prott5_features, esm_features=None):
+        # Level 1: Encode modalities
+        text_enc = self.text_encoder(text_features)
+        prott5_enc = self.prott5_encoder(prott5_features)
+        
+        # Level 2: Interaction
+        interaction_input = torch.cat([text_enc, prott5_enc], dim=-1)
+        interaction = self.interaction_layer(interaction_input)
+        
+        # Hierarchical gating at different levels
+        hierarchical_outputs = []
+        for i, gate_module in enumerate(self.hierarchical_gates):
+            gates = gate_module(interaction_input)
+            level_output = gates[:, 0:1] * text_enc + gates[:, 1:2] * prott5_enc
+            hierarchical_outputs.append(level_output)
+        
+        # Average hierarchical outputs
+        hierarchical_fusion = torch.stack(hierarchical_outputs).mean(dim=0)
+        
+        # Level 3: Global fusion with skip connections
+        global_input = torch.cat([text_enc, prott5_enc, interaction], dim=-1)
+        global_features = self.global_fusion(global_input)
+        
+        # Combine with hierarchical fusion
+        final_features = global_features + 0.1 * hierarchical_fusion
+        output = self.aspect_projection(final_features)
+        
+        # Compute diversity loss for regularization
+        diversity_loss = self.compute_diversity_loss(text_enc, prott5_enc)
+        
+        # Interpretability
+        gate_stats = []
+        for i, gates in enumerate(hierarchical_outputs):
+            gate_module = self.hierarchical_gates[i]
+            g = gate_module(interaction_input)
+            gate_stats.append({
+                'text_gate': g[:, 0].mean().item(),
+                'prott5_gate': g[:, 1].mean().item()
+            })
+        
+        self.interpretability_data = {
+            'level_0_text_gate': gate_stats[0]['text_gate'],
+            'level_1_text_gate': gate_stats[1]['text_gate'],
+            'level_2_text_gate': gate_stats[2]['text_gate'],
+            'diversity_loss': diversity_loss.item(),
+            'feature_magnitudes': {
+                'text': text_enc.norm(dim=-1).mean().item(),
+                'prott5': prott5_enc.norm(dim=-1).mean().item(),
+                'interaction': interaction.norm(dim=-1).mean().item()
+            }
+        }
+        
+        # Add diversity loss to regularize (if training)
+        if self.training:
+            output = output - self.diversity_weight * diversity_loss.unsqueeze(-1)
+        
+        return output, self.interpretability_data
+
+class EnsembleFusion(AblationModel):
+    """Level 9: Ensemble approach combining best elements from all models."""
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        
+        # Component 1: Simple transformation (from model 2 - best performer)
+        self.simple_path = nn.Sequential(
+            nn.Linear(self.text_dim + self.prott5_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        # Component 2: Gated path with improvements
+        self.gated_text = nn.Linear(self.text_dim, self.hidden_dim)
+        self.gated_prott5 = nn.Linear(self.prott5_dim, self.hidden_dim)
+        
+        # Adaptive gates using both modalities
+        gate_input_dim = self.text_dim + self.prott5_dim
+        self.gate_network = nn.Sequential(
+            nn.Linear(gate_input_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, 2),
+            nn.Softmax(dim=-1)
+        )
+        
+        # Component 3: Attention mechanism
+        self.attention = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.Tanh(),
+            nn.Linear(self.hidden_dim, 2),
+            nn.Softmax(dim=-1)
+        )
+        
+        # Path weighting with temperature
+        self.path_temperature = nn.Parameter(torch.ones(1) * 1.0)
+        
+        # Final projection with regularization
+        self.final_projection = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.25),
+            nn.Linear(self.hidden_dim, self.output_dim)
+        )
+        
+    def forward(self, text_features, prott5_features, esm_features=None):
+        # Path 1: Simple concatenation and transformation
+        concat_features = torch.cat([text_features, prott5_features], dim=-1)
+        simple_output = self.simple_path(concat_features)
+        
+        # Path 2: Gated fusion
+        text_h = self.gated_text(text_features)
+        prott5_h = self.gated_prott5(prott5_features)
+        
+        # Compute gates using both modalities
+        gates = self.gate_network(concat_features)
+        
+        # Apply gates
+        gated_output = gates[:, 0:1] * text_h + gates[:, 1:2] * prott5_h
+        
+        # Path 3: Direct weighted average (baseline)
+        avg_output = (text_h + prott5_h) / 2
+        
+        # Combine paths using attention
+        combined = torch.stack([simple_output, gated_output], dim=1)
+        attention_input = torch.cat([simple_output, gated_output], dim=-1)
+        attention_weights = self.attention(attention_input)
+        
+        # Temperature-scaled combination
+        path_weights = F.softmax(attention_weights / self.path_temperature, dim=-1)
+        
+        # Weighted combination with residual from average
+        ensemble_output = (
+            path_weights[:, 0:1] * simple_output +
+            path_weights[:, 1:2] * gated_output +
+            0.1 * avg_output  # Small residual from average
+        )
+        
+        # Final prediction
+        output = self.final_projection(ensemble_output)
+        
+        # Interpretability
+        self.interpretability_data = {
+            'text_gate': gates[:, 0].mean().item(),
+            'prott5_gate': gates[:, 1].mean().item(),
+            'simple_path_weight': path_weights[:, 0].mean().item(),
+            'gated_path_weight': path_weights[:, 1].mean().item(),
+            'path_temperature': self.path_temperature.item(),
+            'gate_entropy': -(gates * torch.log(gates + 1e-8)).sum(dim=-1).mean().item()
+        }
+        
+        return output, self.interpretability_data
 class AblationStudy:
     """Main ablation study coordinator."""
     
@@ -539,18 +1105,6 @@ class AblationStudy:
             'CCO': 551,
             'MFO': 677
         }
-        # Define ablation models
-        self.ablation_models = {
-            '0_baseline_text': SingleModalityBaseline(modality='text'),
-            '0_baseline_prott5': SingleModalityBaseline(modality='prott5'),
-            '0_baseline_esm': SingleModalityBaseline(modality='esm'),
-            '1_simple_concat': SimpleConcatenation(),
-            '2_transformed_concat': TransformedConcatenation(),
-            '3_simple_gated': SimpleGatedFusion(),
-            '4_crossmodal_gated': CrossModalGatedFusion(),
-            '5_full_gated': FullGatedFusion()
-        }
-        
         self.results = {}
         self.interpretability_results = defaultdict(list)
         
@@ -783,7 +1337,11 @@ class AblationStudy:
                 '2_transformed_concat': TransformedConcatenation(output_dim=output_dim),
                 '3_simple_gated':    SimpleGatedFusion(output_dim=output_dim),
                 '4_crossmodal_gated': CrossModalGatedFusion(output_dim=output_dim),
-                '5_full_gated':      FullGatedFusion(output_dim=output_dim)
+                '5_full_gated':      FullGatedFusion(output_dim=output_dim),
+                '6_adaptive_gated':  AdaptiveGatedFusion(output_dim=output_dim),
+                '7_attention_fusion': AttentionFusion(output_dim=output_dim),
+                '8_hierarchical_fusion': HierarchicalFusion(output_dim=output_dim),
+                '9_ensemble_fusion': EnsembleFusion(output_dim=output_dim)
             }
             # Prepare datasets once per aspect to reuse the in‑memory cache
             train_dataset, valid_dataset = self.prepare_datasets(aspect)
@@ -851,7 +1409,7 @@ class AblationStudy:
 
             # Interpretability analysis
             f.write("\n## Interpretability Analysis\n\n")
-                
+
             for model_name in ['4_crossmodal_gated', '5_full_gated']:
                 if model_name in results:
                     interp = results[model_name]['interpretability']
