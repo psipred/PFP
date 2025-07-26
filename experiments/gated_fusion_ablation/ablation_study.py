@@ -1344,30 +1344,30 @@ class AblationStudy:
                 '9_ensemble_fusion': EnsembleFusion(output_dim=output_dim)
             }
             # Prepare datasets once per aspect to reuse the in‑memory cache
-            train_dataset, valid_dataset = self.prepare_datasets(aspect)
-            aspect_results = {}
+            # train_dataset, valid_dataset = self.prepare_datasets(aspect)
+            # aspect_results = {}
             
-            for model_name, model in ablation_models.items():
-                results = self.train_model(model, model_name, aspect,
-                                           train_dataset, valid_dataset)
-                aspect_results[model_name] = results
+            # for model_name, model in ablation_models.items():
+            #     results = self.train_model(model, model_name, aspect,
+            #                                train_dataset, valid_dataset)
+            #     aspect_results[model_name] = results
                 
-                # Save individual results
-                result_file = self.output_dir / f"{model_name}_{aspect}_results.json"
-                with open(result_file, 'w') as f:
-                    json.dump({
-                        'model': model_name,
-                        'aspect': aspect,
-                        'best_fmax': results['best_fmax'],
-                        'final_epoch': results['final_epoch'],
-                        'interpretability_summary': results['interpretability']
-                    }, f, indent=2)
+            #     # Save individual results
+            #     result_file = self.output_dir / f"{model_name}_{aspect}_results.json"
+            #     with open(result_file, 'w') as f:
+            #         json.dump({
+            #             'model': model_name,
+            #             'aspect': aspect,
+            #             'best_fmax': results['best_fmax'],
+            #             'final_epoch': results['final_epoch'],
+            #             'interpretability_summary': results['interpretability']
+            #         }, f, indent=2)
             
-            self.results[aspect] = aspect_results
+            # self.results[aspect] = aspect_results
             
-            # Generate aspect report
-            self.generate_aspect_report(aspect, aspect_results)
-            self.ablation_models = ablation_models  # keep reference for later analysis
+            # # Generate aspect report
+            # self.generate_aspect_report(aspect, aspect_results)
+            # self.ablation_models = ablation_models  # keep reference for later analysis
         
         # Generate final comprehensive report
         self.generate_comprehensive_report()
