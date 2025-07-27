@@ -1086,6 +1086,170 @@ class EnsembleFusion(AblationModel):
         }
         
         return output, self.interpretability_data
+
+
+class TripleModalityAdaptiveFusion(AblationModel):
+    """Triple modality fusion combining best elements from top performers."""
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.requires_esm = True
+        
+        # Simple transformations (from model 2's success)
+        self.text_transform = nn.Sequential(
+            nn.Linear(self.text_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        self.prott5_transform = nn.Sequential(
+            nn.Linear(self.prott5_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        self.esm_transform = nn.Sequential(
+            nn.Linear(self.esm_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        # Adaptive triple gates with temperature (from model 6)
+        self.gate_network = nn.Sequential(
+            nn.Linear(self.text_dim + self.prott5_dim + self.esm_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, 3)  # 3 modalities
+        )
+        
+        # Learnable temperature with better initialization
+        self.temperature = nn.Parameter(torch.tensor(1.5))
+        
+        # Context-aware adjustment (from model 6)
+        self.gate_adjuster = nn.Sequential(
+            nn.Linear(self.text_dim + self.prott5_dim + self.esm_dim, self.hidden_dim // 2),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim // 2, 3),
+            nn.Tanh()
+        )
+        
+        # Pairwise interactions (new component)
+        self.text_esm_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        self.prott5_esm_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        # Final fusion with skip connections
+        self.fusion = nn.Sequential(
+            nn.Linear(self.hidden_dim * 5, self.hidden_dim * 2),  # 3 modalities + 2 interactions
+            nn.LayerNorm(self.hidden_dim * 2),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, self.output_dim)
+        )
+        
+        # Regularization weight for diversity
+        self.diversity_weight = nn.Parameter(torch.tensor(0.01))
+        
+    def compute_adaptive_gates(self, text_features, prott5_features, esm_features):
+        """Compute temperature-scaled gates for three modalities."""
+        # Concatenate all features
+        concat_features = torch.cat([text_features, prott5_features, esm_features], dim=-1)
+        
+        # Base gate values
+        gate_logits = self.gate_network(concat_features)
+        
+        # Context-aware adjustments
+        adjustments = self.gate_adjuster(concat_features)
+        gate_logits = gate_logits + adjustments * 0.5
+        
+        # Temperature-controlled softmax
+        gates = F.softmax(gate_logits / self.temperature, dim=-1)
+        
+        return gates[:, 0:1], gates[:, 1:2], gates[:, 2:3]
+    
+    def compute_diversity_loss(self, text_h, prott5_h, esm_h):
+        """Encourage diversity between representations."""
+        sim_tp = F.cosine_similarity(text_h, prott5_h, dim=-1).mean()
+        sim_te = F.cosine_similarity(text_h, esm_h, dim=-1).mean()
+        sim_pe = F.cosine_similarity(prott5_h, esm_h, dim=-1).mean()
+        return (sim_tp + sim_te + sim_pe) / 3.0
+        
+    def forward(self, text_features, prott5_features, esm_features):
+        if esm_features is None:
+            raise ValueError("This model requires ESM features")
+            
+        # Transform features
+        text_h = self.text_transform(text_features)
+        prott5_h = self.prott5_transform(prott5_features)
+        esm_h = self.esm_transform(esm_features)
+        
+        # Compute adaptive gates
+        text_gate, prott5_gate, esm_gate = self.compute_adaptive_gates(
+            text_features, prott5_features, esm_features
+        )
+        
+        # Apply gates
+        gated_text = text_h * text_gate
+        gated_prott5 = prott5_h * prott5_gate
+        gated_esm = esm_h * esm_gate
+        
+        # Compute pairwise interactions (important for capturing relationships)
+        text_esm_interact = self.text_esm_interaction(
+            torch.cat([gated_text, gated_esm], dim=-1)
+        )
+        prott5_esm_interact = self.prott5_esm_interaction(
+            torch.cat([gated_prott5, gated_esm], dim=-1)
+        )
+        
+        # Combine all representations
+        combined = torch.cat([
+            gated_text, gated_prott5, gated_esm,
+            text_esm_interact, prott5_esm_interact
+        ], dim=-1)
+        
+        # Final prediction
+        output = self.fusion(combined)
+        
+        # Add diversity regularization during training
+        if self.training:
+            diversity_loss = self.compute_diversity_loss(text_h, prott5_h, esm_h)
+            output = output - self.diversity_weight * diversity_loss.unsqueeze(-1)
+        
+        # Interpretability data
+        # Stack gates into shape (batch, 3) for analysis
+        gates_tensor = torch.cat([text_gate, prott5_gate, esm_gate], dim=1)  # (B, 3)
+        batch_mean_gates = gates_tensor.mean(dim=0)  # (3,)
+        dominant_idx = int(batch_mean_gates.argmax().item())
+        dominant_name = ['text', 'prott5', 'esm'][dominant_idx]
+
+        gate_entropy = -(gates_tensor * torch.log(gates_tensor + 1e-8)).sum(dim=1).mean().item()
+
+        self.interpretability_data = {
+            'text_gate': text_gate.mean().item(),
+            'prott5_gate': prott5_gate.mean().item(),
+            'esm_gate': esm_gate.mean().item(),
+            'temperature': self.temperature.item(),
+            'gate_entropy': gate_entropy,
+            'dominant_modality': dominant_name,
+            'diversity_loss': diversity_loss.item() if self.training else 0.0
+        }
+        
+        return output, self.interpretability_data
 class AblationStudy:
     """Main ablation study coordinator."""
     
@@ -1138,8 +1302,9 @@ class AblationStudy:
                    train_dataset, valid_dataset, epochs: int = 100):
         """Train a single ablation model."""
         logger.info(f"\nTraining {model_name} on {aspect}")
-        # Only the dedicated ESM baseline should consume ESM embeddings
-        use_esm = model_name.endswith('_esm')
+        # Allow models that explicitly require ESM (e.g., TripleModalityAdaptiveFusion) to consume ESM,
+        # as well as dedicated _esm baselines.
+        use_esm = getattr(model, 'requires_esm', False) or model_name.endswith('_esm')
         
         train_loader = torch.utils.data.DataLoader(
             train_dataset, 
@@ -1330,44 +1495,45 @@ class AblationStudy:
             output_dim = self.aspect_output_dims.get(aspect, 677)
 
             ablation_models = {
-                '0_baseline_text':   SingleModalityBaseline(modality='text',   output_dim=output_dim),
-                '0_baseline_prott5': SingleModalityBaseline(modality='prott5', output_dim=output_dim),
-                '0_baseline_esm':    SingleModalityBaseline(modality='esm',    output_dim=output_dim),
-                '1_simple_concat':   SimpleConcatenation(output_dim=output_dim),
-                '2_transformed_concat': TransformedConcatenation(output_dim=output_dim),
-                '3_simple_gated':    SimpleGatedFusion(output_dim=output_dim),
-                '4_crossmodal_gated': CrossModalGatedFusion(output_dim=output_dim),
-                '5_full_gated':      FullGatedFusion(output_dim=output_dim),
-                '6_adaptive_gated':  AdaptiveGatedFusion(output_dim=output_dim),
-                '7_attention_fusion': AttentionFusion(output_dim=output_dim),
-                '8_hierarchical_fusion': HierarchicalFusion(output_dim=output_dim),
-                '9_ensemble_fusion': EnsembleFusion(output_dim=output_dim)
+                # '0_baseline_text':   SingleModalityBaseline(modality='text',   output_dim=output_dim),
+                # '0_baseline_prott5': SingleModalityBaseline(modality='prott5', output_dim=output_dim),
+                # '0_baseline_esm':    SingleModalityBaseline(modality='esm',    output_dim=output_dim),
+                # '1_simple_concat':   SimpleConcatenation(output_dim=output_dim),
+                # '2_transformed_concat': TransformedConcatenation(output_dim=output_dim),
+                # '3_simple_gated':    SimpleGatedFusion(output_dim=output_dim),
+                # '4_crossmodal_gated': CrossModalGatedFusion(output_dim=output_dim),
+                # '5_full_gated':      FullGatedFusion(output_dim=output_dim),
+                # '6_adaptive_gated':  AdaptiveGatedFusion(output_dim=output_dim),
+                # '7_attention_fusion': AttentionFusion(output_dim=output_dim),
+                # '8_hierarchical_fusion': HierarchicalFusion(output_dim=output_dim),
+                # '9_ensemble_fusion': EnsembleFusion(output_dim=output_dim),
+                '10_triple_adaptive': TripleModalityAdaptiveFusion(output_dim=output_dim)
             }
             # Prepare datasets once per aspect to reuse the in‑memory cache
-            # train_dataset, valid_dataset = self.prepare_datasets(aspect)
-            # aspect_results = {}
+            train_dataset, valid_dataset = self.prepare_datasets(aspect)
+            aspect_results = {}
             
-            # for model_name, model in ablation_models.items():
-            #     results = self.train_model(model, model_name, aspect,
-            #                                train_dataset, valid_dataset)
-            #     aspect_results[model_name] = results
+            for model_name, model in ablation_models.items():
+                results = self.train_model(model, model_name, aspect,
+                                           train_dataset, valid_dataset)
+                aspect_results[model_name] = results
                 
-            #     # Save individual results
-            #     result_file = self.output_dir / f"{model_name}_{aspect}_results.json"
-            #     with open(result_file, 'w') as f:
-            #         json.dump({
-            #             'model': model_name,
-            #             'aspect': aspect,
-            #             'best_fmax': results['best_fmax'],
-            #             'final_epoch': results['final_epoch'],
-            #             'interpretability_summary': results['interpretability']
-            #         }, f, indent=2)
+                # Save individual results
+                result_file = self.output_dir / f"{model_name}_{aspect}_results.json"
+                with open(result_file, 'w') as f:
+                    json.dump({
+                        'model': model_name,
+                        'aspect': aspect,
+                        'best_fmax': results['best_fmax'],
+                        'final_epoch': results['final_epoch'],
+                        'interpretability_summary': results['interpretability']
+                    }, f, indent=2)
             
-            # self.results[aspect] = aspect_results
+            self.results[aspect] = aspect_results
             
-            # # Generate aspect report
-            # self.generate_aspect_report(aspect, aspect_results)
-            # self.ablation_models = ablation_models  # keep reference for later analysis
+            # Generate aspect report
+            self.generate_aspect_report(aspect, aspect_results)
+            self.ablation_models = ablation_models  # keep reference for later analysis
         
         # Generate final comprehensive report
         self.generate_comprehensive_report()
