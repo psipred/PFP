@@ -1242,14 +1242,384 @@ class TripleModalityAdaptiveFusion(AblationModel):
         self.interpretability_data = {
             'text_gate': text_gate.mean().item(),
             'prott5_gate': prott5_gate.mean().item(),
-            'esm_gate': esm_gate.mean().item(),
+            'esm_   gate': esm_gate.mean().item(),
             'temperature': self.temperature.item(),
-            'gate_entropy': gate_entropy,
+            'gate_entropy': gate_entropy,   
             'dominant_modality': dominant_name,
             'diversity_loss': diversity_loss.item() if self.training else 0.0
         }
         
         return output, self.interpretability_data
+
+
+# --- Model 11: Enhanced triple modality fusion with vector gates and complete interactions ---
+class EnhancedTripleModalityFusion(AblationModel):
+    """Model 11: Enhanced triple modality fusion with vector gates and complete interactions."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.requires_esm = True
+
+        # Modality transformations (same as model 10)
+        self.text_transform = nn.Sequential(
+            nn.Linear(self.text_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+
+        self.prott5_transform = nn.Sequential(
+            nn.Linear(self.prott5_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+
+        self.esm_transform = nn.Sequential(
+            nn.Linear(self.esm_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+
+        # Vector gates (per-dimension) instead of scalar
+        gate_in = self.text_dim + self.prott5_dim + self.esm_dim
+        self.text_gate_network = nn.Sequential(
+            nn.Linear(gate_in, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, self.hidden_dim)
+        )
+        self.prott5_gate_network = nn.Sequential(
+            nn.Linear(gate_in, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, self.hidden_dim)
+        )
+        self.esm_gate_network = nn.Sequential(
+            nn.Linear(gate_in, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, self.hidden_dim)
+        )
+
+        # Temperature parameter for vector gates
+        self.temperature = nn.Parameter(torch.tensor(1.5))
+
+        # Context-aware gate adjustments (now vector-based)
+        self.gate_adjuster = nn.Sequential(
+            nn.Linear(gate_in, self.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim, self.hidden_dim * 3),
+            nn.Tanh()
+        )
+
+        # Complete pairwise interactions (including text-prott5)
+        self.text_prott5_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        self.text_esm_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        self.prott5_esm_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+
+        # Triple interaction module
+        self.triple_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 3, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.15),
+            nn.Linear(self.hidden_dim, self.hidden_dim)
+        )
+
+        # Final fusion with all components
+        # 3 gated modalities + 3 pairwise interactions + 1 triple interaction = 7 * hidden_dim
+        self.fusion = nn.Sequential(
+            nn.Linear(self.hidden_dim * 7, self.hidden_dim * 2),
+            nn.LayerNorm(self.hidden_dim * 2),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, self.output_dim)
+        )
+        # Learnable diversity regularization weight
+        self.diversity_weight = nn.Parameter(torch.tensor(0.01))
+
+    def compute_vector_gates(self, text_features, prott5_features, esm_features):
+        """Compute per-dimension gates using temperature-scaled softmax."""
+        concat_features = torch.cat([text_features, prott5_features, esm_features], dim=-1)
+
+        # Base vector gate logits (B, H)
+        text_gate_logits = self.text_gate_network(concat_features)
+        prott5_gate_logits = self.prott5_gate_network(concat_features)
+        esm_gate_logits = self.esm_gate_network(concat_features)
+
+        # Vector adjustments
+        adjustments = self.gate_adjuster(concat_features)  # (B, 3H)
+        adj_text = adjustments[:, :self.hidden_dim]
+        adj_prott5 = adjustments[:, self.hidden_dim:2*self.hidden_dim]
+        adj_esm = adjustments[:, 2*self.hidden_dim:]
+
+        text_gate_logits = text_gate_logits + 0.5 * adj_text
+        prott5_gate_logits = prott5_gate_logits + 0.5 * adj_prott5
+        esm_gate_logits = esm_gate_logits + 0.5 * adj_esm
+
+        # Stack and apply temperature softmax across modality axis for each hidden dim
+        gate_logits = torch.stack([text_gate_logits, prott5_gate_logits, esm_gate_logits], dim=1)  # (B, 3, H)
+        gates = F.softmax(gate_logits / self.temperature, dim=1)  # (B, 3, H)
+        return gates[:, 0, :], gates[:, 1, :], gates[:, 2, :]
+
+    def compute_diversity_loss(self, text_h, prott5_h, esm_h):
+        """Encourage diversity between representations (for reporting; not added to loss here)."""
+        text_norm = F.normalize(text_h, p=2, dim=-1)
+        prott5_norm = F.normalize(prott5_h, p=2, dim=-1)
+        esm_norm = F.normalize(esm_h, p=2, dim=-1)
+        sim_tp = (text_norm * prott5_norm).sum(dim=-1).mean()
+        sim_te = (text_norm * esm_norm).sum(dim=-1).mean()
+        sim_pe = (prott5_norm * esm_norm).sum(dim=-1).mean()
+        return (sim_tp + sim_te + sim_pe) / 3.0
+
+    def forward(self, text_features, prott5_features, esm_features):
+        if esm_features is None:
+            raise ValueError("This model requires ESM features")
+
+        # Transform
+        text_h = self.text_transform(text_features)
+        prott5_h = self.prott5_transform(prott5_features)
+        esm_h = self.esm_transform(esm_features)
+
+        # Vector gates
+        text_gate, prott5_gate, esm_gate = self.compute_vector_gates(
+            text_features, prott5_features, esm_features
+        )  # each (B, H)
+
+        # Apply gates (broadcast across hidden dim)
+        gated_text = text_h * text_gate
+        gated_prott5 = prott5_h * prott5_gate
+        gated_esm = esm_h * esm_gate
+
+        # All pairwise interactions
+        text_prott5_interact = self.text_prott5_interaction(torch.cat([gated_text, gated_prott5], dim=-1))
+        text_esm_interact = self.text_esm_interaction(torch.cat([gated_text, gated_esm], dim=-1))
+        prott5_esm_interact = self.prott5_esm_interaction(torch.cat([gated_prott5, gated_esm], dim=-1))
+
+        # Triple interaction
+        triple_interact = self.triple_interaction(torch.cat([gated_text, gated_prott5, gated_esm], dim=-1))
+
+        # Final fusion
+        combined = torch.cat([
+            gated_text, gated_prott5, gated_esm,
+            text_prott5_interact, text_esm_interact, prott5_esm_interact,
+            triple_interact
+        ], dim=-1)
+        output = self.fusion(combined)
+
+        # Diversity (reported only; training pipeline remains unchanged)
+        diversity_loss = self.compute_diversity_loss(text_h, prott5_h, esm_h)
+        # Apply diversity regularization inside the model (internal style)
+        if self.training:
+            output = output - self.diversity_weight * diversity_loss.unsqueeze(-1)
+
+        # Interpretability
+        gates_tensor = torch.stack([text_gate, prott5_gate, esm_gate], dim=1)  # (B, 3, H)
+        gate_entropy_perdim = -(gates_tensor * torch.log(gates_tensor + 1e-8)).sum(dim=1).mean().item()
+        dominant_idx = int(torch.stack([
+            text_gate.mean(), prott5_gate.mean(), esm_gate.mean()
+        ]).argmax().item())
+        dominant_name = ['text', 'prott5', 'esm'][dominant_idx]
+
+        self.interpretability_data = {
+            'text_gate_mean': text_gate.mean().item(),
+            'prott5_gate_mean': prott5_gate.mean().item(),
+            'esm_gate_mean': esm_gate.mean().item(),
+            'text_gate_std': text_gate.std().item(),
+            'prott5_gate_std': prott5_gate.std().item(),
+            'esm_gate_std': esm_gate.std().item(),
+            'temperature': self.temperature.item(),
+            'gate_entropy_perdim': gate_entropy_perdim,
+            'diversity_loss': diversity_loss.item(),
+            'dominant_modality': dominant_name
+        }
+
+        # Keep pipeline signature: return (output, interpretability_data)
+        return output, self.interpretability_data
+
+
+# --- Model 12: EnhancedTripleModalityFusionLoss (returns diversity loss to add in trainer) ---
+class EnhancedTripleModalityFusionLoss(AblationModel):
+    """Model 12: Same as model 11 but returns diversity loss to add in the trainer."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.requires_esm = True
+
+        # Modality transformations
+        self.text_transform = nn.Sequential(
+            nn.Linear(self.text_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        self.prott5_transform = nn.Sequential(
+            nn.Linear(self.prott5_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        self.esm_transform = nn.Sequential(
+            nn.Linear(self.esm_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+
+        gate_in = self.text_dim + self.prott5_dim + self.esm_dim
+        self.text_gate_network = nn.Sequential(
+            nn.Linear(gate_in, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, self.hidden_dim)
+        )
+        self.prott5_gate_network = nn.Sequential(
+            nn.Linear(gate_in, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, self.hidden_dim)
+        )
+        self.esm_gate_network = nn.Sequential(
+            nn.Linear(gate_in, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, self.hidden_dim)
+        )
+        self.temperature = nn.Parameter(torch.tensor(1.5))
+        self.gate_adjuster = nn.Sequential(
+            nn.Linear(gate_in, self.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim, self.hidden_dim * 3),
+            nn.Tanh()
+        )
+
+        self.text_prott5_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        self.text_esm_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        self.prott5_esm_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        self.triple_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 3, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.15),
+            nn.Linear(self.hidden_dim, self.hidden_dim)
+        )
+        self.fusion = nn.Sequential(
+            nn.Linear(self.hidden_dim * 7, self.hidden_dim * 2),
+            nn.LayerNorm(self.hidden_dim * 2),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, self.output_dim)
+        )
+
+    def compute_vector_gates(self, text_features, prott5_features, esm_features):
+        concat_features = torch.cat([text_features, prott5_features, esm_features], dim=-1)
+        text_gate_logits = self.text_gate_network(concat_features)
+        prott5_gate_logits = self.prott5_gate_network(concat_features)
+        esm_gate_logits = self.esm_gate_network(concat_features)
+        adjustments = self.gate_adjuster(concat_features)
+        adj_text = adjustments[:, :self.hidden_dim]
+        adj_prott5 = adjustments[:, self.hidden_dim:2*self.hidden_dim]
+        adj_esm = adjustments[:, 2*self.hidden_dim:]
+        text_gate_logits = text_gate_logits + 0.5 * adj_text
+        prott5_gate_logits = prott5_gate_logits + 0.5 * adj_prott5
+        esm_gate_logits = esm_gate_logits + 0.5 * adj_esm
+        gate_logits = torch.stack([text_gate_logits, prott5_gate_logits, esm_gate_logits], dim=1)
+        gates = F.softmax(gate_logits / self.temperature, dim=1)
+        return gates[:, 0, :], gates[:, 1, :], gates[:, 2, :]
+
+    def compute_diversity_loss(self, text_h, prott5_h, esm_h):
+        text_norm = F.normalize(text_h, p=2, dim=-1)
+        prott5_norm = F.normalize(prott5_h, p=2, dim=-1)
+        esm_norm = F.normalize(esm_h, p=2, dim=-1)
+        sim_tp = (text_norm * prott5_norm).sum(dim=-1).mean()
+        sim_te = (text_norm * esm_norm).sum(dim=-1).mean()
+        sim_pe = (prott5_norm * esm_norm).sum(dim=-1).mean()
+        return (sim_tp + sim_te + sim_pe) / 3.0
+
+    def forward(self, text_features, prott5_features, esm_features):
+        if esm_features is None:
+            raise ValueError("This model requires ESM features")
+
+        text_h = self.text_transform(text_features)
+        prott5_h = self.prott5_transform(prott5_features)
+        esm_h = self.esm_transform(esm_features)
+
+        text_gate, prott5_gate, esm_gate = self.compute_vector_gates(
+            text_features, prott5_features, esm_features
+        )
+
+        gated_text = text_h * text_gate
+        gated_prott5 = prott5_h * prott5_gate
+        gated_esm = esm_h * esm_gate
+
+        text_prott5_interact = self.text_prott5_interaction(torch.cat([gated_text, gated_prott5], dim=-1))
+        text_esm_interact = self.text_esm_interaction(torch.cat([gated_text, gated_esm], dim=-1))
+        prott5_esm_interact = self.prott5_esm_interaction(torch.cat([gated_prott5, gated_esm], dim=-1))
+        triple_interact = self.triple_interaction(torch.cat([gated_text, gated_prott5, gated_esm], dim=-1))
+
+        combined = torch.cat([
+            gated_text, gated_prott5, gated_esm,
+            text_prott5_interact, text_esm_interact, prott5_esm_interact,
+            triple_interact
+        ], dim=-1)
+        output = self.fusion(combined)
+
+        diversity_loss = self.compute_diversity_loss(text_h, prott5_h, esm_h)
+
+        gates_tensor = torch.stack([text_gate, prott5_gate, esm_gate], dim=1)
+        gate_entropy_perdim = -(gates_tensor * torch.log(gates_tensor + 1e-8)).sum(dim=1).mean().item()
+        dominant_idx = int(torch.stack([
+            text_gate.mean(), prott5_gate.mean(), esm_gate.mean()
+        ]).argmax().item())
+        dominant_name = ['text', 'prott5', 'esm'][dominant_idx]
+
+        self.interpretability_data = {
+            'text_gate_mean': text_gate.mean().item(),
+            'prott5_gate_mean': prott5_gate.mean().item(),
+            'esm_gate_mean': esm_gate.mean().item(),
+            'text_gate_std': text_gate.std().item(),
+            'prott5_gate_std': prott5_gate.std().item(),
+            'esm_gate_std': esm_gate.std().item(),
+            'temperature': self.temperature.item(),
+            'gate_entropy_perdim': gate_entropy_perdim,
+            'diversity_loss': diversity_loss.item(),
+            'dominant_modality': dominant_name
+        }
+
+        # Return diversity loss for trainer to add into criterion
+        return output, self.interpretability_data, diversity_loss
 class AblationStudy:
     """Main ablation study coordinator."""
     
@@ -1325,6 +1695,7 @@ class AblationStudy:
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0.01)
         criterion = nn.BCEWithLogitsLoss()
         early_stop = EarlyStop(patience=5, min_epochs=10)
+        diversity_weight = self.base_config.get('optim', {}).get('diversity_weight', 0.01)
         
         best_fmax = 0.0
         history = []
@@ -1346,16 +1717,22 @@ class AblationStudy:
                     prott5_input = features.get('prott5', None)
                     esm_input = features.get('esm', None) if use_esm else None
 
-                    predictions, interp_data = model(
+                    out = model(
                         text_input.to(self.device) if text_input is not None else None,
                         prott5_input.to(self.device) if prott5_input is not None else None,
                         esm_input.to(self.device) if esm_input is not None else None
                     )
+                    if isinstance(out, tuple) and len(out) == 3:
+                        predictions, interp_data, diversity_loss = out
+                    else:
+                        predictions, interp_data = out
+                        diversity_loss = None
                 except ValueError as e:
                     logger.warning(f"Skipping batch in training due to missing modality features: {e}")
                     continue
 
-                loss = criterion(predictions, labels)
+                main_loss = criterion(predictions, labels)
+                loss = main_loss + (diversity_weight * diversity_loss if diversity_loss is not None else 0.0)
 
                 # Backward pass
                 optimizer.zero_grad()
@@ -1385,11 +1762,15 @@ class AblationStudy:
                         prott5_input = features.get('prott5', None)
                         esm_input = features.get('esm', None) if use_esm else None
 
-                        predictions, interp_data = model(
+                        out = model(
                             text_input.to(self.device) if text_input is not None else None,
                             prott5_input.to(self.device) if prott5_input is not None else None,
                             esm_input.to(self.device) if esm_input is not None else None
                         )
+                        if isinstance(out, tuple):
+                            predictions, interp_data = out[0], out[1]
+                        else:
+                            predictions, interp_data = out
                     except ValueError as e:
                         logger.warning(f"Skipping batch in validation due to missing modality features: {e}")
                         continue
@@ -1495,19 +1876,21 @@ class AblationStudy:
             output_dim = self.aspect_output_dims.get(aspect, 677)
 
             ablation_models = {
-                # '0_baseline_text':   SingleModalityBaseline(modality='text',   output_dim=output_dim),
-                # '0_baseline_prott5': SingleModalityBaseline(modality='prott5', output_dim=output_dim),
-                # '0_baseline_esm':    SingleModalityBaseline(modality='esm',    output_dim=output_dim),
-                # '1_simple_concat':   SimpleConcatenation(output_dim=output_dim),
-                # '2_transformed_concat': TransformedConcatenation(output_dim=output_dim),
-                # '3_simple_gated':    SimpleGatedFusion(output_dim=output_dim),
-                # '4_crossmodal_gated': CrossModalGatedFusion(output_dim=output_dim),
-                # '5_full_gated':      FullGatedFusion(output_dim=output_dim),
-                # '6_adaptive_gated':  AdaptiveGatedFusion(output_dim=output_dim),
-                # '7_attention_fusion': AttentionFusion(output_dim=output_dim),
-                # '8_hierarchical_fusion': HierarchicalFusion(output_dim=output_dim),
-                # '9_ensemble_fusion': EnsembleFusion(output_dim=output_dim),
-                '10_triple_adaptive': TripleModalityAdaptiveFusion(output_dim=output_dim)
+                '0_baseline_text':   SingleModalityBaseline(modality='text',   output_dim=output_dim),
+                '0_baseline_prott5': SingleModalityBaseline(modality='prott5', output_dim=output_dim),
+                '0_baseline_esm':    SingleModalityBaseline(modality='esm',    output_dim=output_dim),
+                '1_simple_concat':   SimpleConcatenation(output_dim=output_dim),
+                '2_transformed_concat': TransformedConcatenation(output_dim=output_dim),
+                '3_simple_gated':    SimpleGatedFusion(output_dim=output_dim),
+                '4_crossmodal_gated': CrossModalGatedFusion(output_dim=output_dim),
+                '5_full_gated':      FullGatedFusion(output_dim=output_dim),
+                '6_adaptive_gated':  AdaptiveGatedFusion(output_dim=output_dim),
+                '7_attention_fusion': AttentionFusion(output_dim=output_dim),
+                '8_hierarchical_fusion': HierarchicalFusion(output_dim=output_dim),
+                '9_ensemble_fusion': EnsembleFusion(output_dim=output_dim),
+                '10_triple_adaptive': TripleModalityAdaptiveFusion(output_dim=output_dim),
+                '11_enhanced_triple': EnhancedTripleModalityFusion(output_dim=output_dim),
+                '12_enhanced_triple_loss': EnhancedTripleModalityFusionLoss(output_dim=output_dim),
             }
             # Prepare datasets once per aspect to reuse the in‑memory cache
             train_dataset, valid_dataset = self.prepare_datasets(aspect)
