@@ -1,0 +1,9 @@
+{
+  "model": "0_baseline_esm",
+  "aspect": "BPO",
+  "best_fmax": 0.4704707860946655,
+  "best_epoch": 30,
+  "final_epoch": 30,
+  "avg_overfitting_gap": 0.004092547807184476,
+  "convergence_epoch": 7
+}

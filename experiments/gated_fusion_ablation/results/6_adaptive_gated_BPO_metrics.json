@@ -1,0 +1,9 @@
+{
+  "model": "6_adaptive_gated",
+  "aspect": "BPO",
+  "best_fmax": 0.5016909241676331,
+  "best_epoch": 26,
+  "final_epoch": 30,
+  "avg_overfitting_gap": 0.00877897057409483,
+  "convergence_epoch": 7
+}

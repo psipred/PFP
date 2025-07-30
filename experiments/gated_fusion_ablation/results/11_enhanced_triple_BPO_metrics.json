@@ -1,0 +1,9 @@
+{
+  "model": "11_enhanced_triple",
+  "aspect": "BPO",
+  "best_fmax": 0.4954525828361511,
+  "best_epoch": 19,
+  "final_epoch": 24,
+  "avg_overfitting_gap": 0.011621751164398874,
+  "convergence_epoch": 8
+}

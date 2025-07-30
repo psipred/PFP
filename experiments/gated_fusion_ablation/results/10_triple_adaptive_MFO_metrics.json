@@ -1,0 +1,9 @@
+{
+  "model": "10_triple_adaptive",
+  "aspect": "MFO",
+  "best_fmax": 0.6700997352600098,
+  "best_epoch": 29,
+  "final_epoch": 30,
+  "avg_overfitting_gap": 0.013559408670559237,
+  "convergence_epoch": 9
+}

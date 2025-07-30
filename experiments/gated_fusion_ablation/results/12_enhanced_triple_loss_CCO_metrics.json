@@ -1,0 +1,9 @@
+{
+  "model": "12_enhanced_triple_loss",
+  "aspect": "CCO",
+  "best_fmax": 0.7132445573806763,
+  "best_epoch": 11,
+  "final_epoch": 16,
+  "avg_overfitting_gap": 0.010857972126142056,
+  "convergence_epoch": 7
+}

@@ -1,15 +1,15 @@
 {
   "model": "0_baseline_esm",
   "aspect": "BPO",
-  "best_fmax": 0.4752035439014435,
-  "final_epoch": 39,
+  "best_fmax": 0.47732505202293396,
+  "final_epoch": 55,
   "interpretability_summary": {
     "feature_magnitude": {
-      "mean": 7.340896338336872,
-      "std": 0.21291285384733494,
-      "min": 6.756494522094727,
+      "mean": 7.30457743698696,
+      "std": 0.20682103135145194,
+      "min": 6.682160377502441,
       "max": 7.945669651031494,
-      "median": 7.346858978271484
+      "median": 7.308650016784668
     }
   }
 }

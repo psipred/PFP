@@ -1,0 +1,9 @@
+{
+  "model": "Model11C_MixtureOfExperts",
+  "aspect": "BPO",
+  "best_fmax": 0.5007005929946899,
+  "best_epoch": 28,
+  "final_epoch": 30,
+  "avg_overfitting_gap": 0.0119378617565206,
+  "convergence_epoch": 8
+}

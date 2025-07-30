@@ -1,0 +1,9 @@
+{
+  "model": "Model11B_DynamicDiversity",
+  "aspect": "BPO",
+  "best_fmax": 0.4997754693031311,
+  "best_epoch": 28,
+  "final_epoch": 30,
+  "avg_overfitting_gap": 0.010900269794949551,
+  "convergence_epoch": 8
+}

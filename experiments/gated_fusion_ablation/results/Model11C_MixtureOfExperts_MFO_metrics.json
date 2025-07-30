@@ -1,0 +1,9 @@
+{
+  "model": "Model11C_MixtureOfExperts",
+  "aspect": "MFO",
+  "best_fmax": 0.6689386963844299,
+  "best_epoch": 28,
+  "final_epoch": 30,
+  "avg_overfitting_gap": 0.015350853861469305,
+  "convergence_epoch": 9
+}

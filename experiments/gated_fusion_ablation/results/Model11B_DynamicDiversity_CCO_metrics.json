@@ -1,0 +1,9 @@
+{
+  "model": "Model11B_DynamicDiversity",
+  "aspect": "CCO",
+  "best_fmax": 0.7122591733932495,
+  "best_epoch": 14,
+  "final_epoch": 19,
+  "avg_overfitting_gap": 0.010577741600488067,
+  "convergence_epoch": 8
+}

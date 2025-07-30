@@ -1,0 +1,9 @@
+{
+  "model": "1_simple_concat",
+  "aspect": "CCO",
+  "best_fmax": 0.7008044719696045,
+  "best_epoch": 19,
+  "final_epoch": 24,
+  "avg_overfitting_gap": 0.0074750094145321095,
+  "convergence_epoch": 8
+}

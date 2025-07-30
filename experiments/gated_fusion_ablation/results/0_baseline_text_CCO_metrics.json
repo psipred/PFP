@@ -1,0 +1,9 @@
+{
+  "model": "0_baseline_text",
+  "aspect": "CCO",
+  "best_fmax": 0.6553658246994019,
+  "best_epoch": 26,
+  "final_epoch": 30,
+  "avg_overfitting_gap": 0.007190949306347736,
+  "convergence_epoch": 7
+}

@@ -1,0 +1,9 @@
+{
+  "model": "0_baseline_prott5",
+  "aspect": "BPO",
+  "best_fmax": 0.4821423590183258,
+  "best_epoch": 30,
+  "final_epoch": 30,
+  "avg_overfitting_gap": 0.005443741371056183,
+  "convergence_epoch": 7
+}

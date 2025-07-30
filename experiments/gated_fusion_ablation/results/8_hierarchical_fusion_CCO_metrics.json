@@ -1,0 +1,9 @@
+{
+  "model": "8_hierarchical_fusion",
+  "aspect": "CCO",
+  "best_fmax": 0.7098406553268433,
+  "best_epoch": 18,
+  "final_epoch": 23,
+  "avg_overfitting_gap": 0.009798467840075733,
+  "convergence_epoch": 7
+}

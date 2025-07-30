@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Bottom-up Ablation Study for Gated Fusion Model
-Analyzes component contributions and modality importance
+Refined Ablation Study Report Pipeline
+Focuses on performance metrics and overfitting analysis
 """
 
 import os
@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from collections import defaultdict
 
+# Import statements remain the same
 sys.path.append('/SAN/bioinf/PFP/PFP')
 
 from experiments.cafa3_integration.train_cafa3 import (
@@ -31,7 +32,6 @@ from Network.model_utils import EarlyStop
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 class AblationModel(nn.Module):
     """Base class for ablation models with interpretability hooks."""
@@ -159,20 +159,20 @@ class TransformedConcatenation(AblationModel):
             nn.Linear(self.text_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         self.prott5_transform = nn.Sequential(
             nn.Linear(self.prott5_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         self.esm_transform = nn.Sequential(
             nn.Linear(self.esm_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         self.fusion = nn.Sequential(
@@ -312,20 +312,20 @@ class CrossModalGatedFusion(AblationModel):
             nn.Linear(self.text_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         self.prott5_transform = nn.Sequential(
             nn.Linear(self.prott5_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         self.esm_transform = nn.Sequential(
             nn.Linear(self.esm_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         # Cross-modal gates
@@ -404,20 +404,20 @@ class FullGatedFusion(AblationModel):
             nn.Linear(self.text_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         self.prott5_transform = nn.Sequential(
             nn.Linear(self.prott5_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         self.esm_transform = nn.Sequential(
             nn.Linear(self.esm_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         # Cross-modal gates
@@ -440,14 +440,14 @@ class FullGatedFusion(AblationModel):
             nn.Linear(self.hidden_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         self.prott5_processor = nn.Sequential(
             nn.Linear(self.hidden_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         # Residual weight
@@ -531,14 +531,14 @@ class AdaptiveGatedFusion(AblationModel):
             nn.Linear(self.text_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         self.prott5_transform = nn.Sequential(
             nn.Linear(self.prott5_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         # Adaptive gates with temperature
@@ -650,7 +650,7 @@ class AttentionFusion(AblationModel):
         self.cross_attention = nn.MultiheadAttention(
             embed_dim=self.hidden_dim,
             num_heads=num_heads,
-            dropout=0.1,
+            dropout=0.2,
             batch_first=True
         )
         
@@ -659,14 +659,14 @@ class AttentionFusion(AblationModel):
             nn.Linear(self.hidden_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         self.prott5_processor = nn.Sequential(
             nn.Linear(self.hidden_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         # Adaptive weighting based on attention scores
@@ -757,14 +757,14 @@ class HierarchicalFusion(AblationModel):
             nn.Linear(self.text_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         self.prott5_encoder = nn.Sequential(
             nn.Linear(self.prott5_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         # Second level: interaction layer
@@ -772,7 +772,7 @@ class HierarchicalFusion(AblationModel):
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.15)
+            nn.Dropout(0.2)
         )
         
         # Hierarchical gates for different GO levels
@@ -798,7 +798,7 @@ class HierarchicalFusion(AblationModel):
             nn.Linear(self.hidden_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.2),
             nn.Linear(self.hidden_dim, self.output_dim)
         )
         
@@ -880,14 +880,14 @@ class HierarchicalFusion(AblationModel):
             nn.Linear(self.text_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         self.prott5_encoder = nn.Sequential(
             nn.Linear(self.prott5_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         # Second level: interaction layer
@@ -895,7 +895,7 @@ class HierarchicalFusion(AblationModel):
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.15)
+            nn.Dropout(0.2)
         )
         
         # Hierarchical gates for different GO levels
@@ -921,7 +921,7 @@ class HierarchicalFusion(AblationModel):
             nn.Linear(self.hidden_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.2),
             nn.Linear(self.hidden_dim, self.output_dim)
         )
         
@@ -1002,7 +1002,7 @@ class EnsembleFusion(AblationModel):
             nn.Linear(self.text_dim + self.prott5_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         # Component 2: Gated path with improvements
@@ -1035,7 +1035,7 @@ class EnsembleFusion(AblationModel):
             nn.Linear(self.hidden_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.25),
+            nn.Dropout(0.2),
             nn.Linear(self.hidden_dim, self.output_dim)
         )
         
@@ -1100,21 +1100,21 @@ class TripleModalityAdaptiveFusion(AblationModel):
             nn.Linear(self.text_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         self.prott5_transform = nn.Sequential(
             nn.Linear(self.prott5_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         self.esm_transform = nn.Sequential(
             nn.Linear(self.esm_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         # Adaptive triple gates with temperature (from model 6)
@@ -1140,13 +1140,13 @@ class TripleModalityAdaptiveFusion(AblationModel):
         self.text_esm_interaction = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         self.prott5_esm_interaction = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         
         # Final fusion with skip connections
@@ -1242,7 +1242,7 @@ class TripleModalityAdaptiveFusion(AblationModel):
         self.interpretability_data = {
             'text_gate': text_gate.mean().item(),
             'prott5_gate': prott5_gate.mean().item(),
-            'esm_   gate': esm_gate.mean().item(),
+            'esm_gate': esm_gate.mean().item(),
             'temperature': self.temperature.item(),
             'gate_entropy': gate_entropy,   
             'dominant_modality': dominant_name,
@@ -1265,21 +1265,21 @@ class EnhancedTripleModalityFusion(AblationModel):
             nn.Linear(self.text_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
 
         self.prott5_transform = nn.Sequential(
             nn.Linear(self.prott5_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
 
         self.esm_transform = nn.Sequential(
             nn.Linear(self.esm_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
 
         # Vector gates (per-dimension) instead of scalar
@@ -1318,17 +1318,17 @@ class EnhancedTripleModalityFusion(AblationModel):
         self.text_prott5_interaction = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         self.text_esm_interaction = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         self.prott5_esm_interaction = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
 
         # Triple interaction module
@@ -1468,19 +1468,19 @@ class EnhancedTripleModalityFusionLoss(AblationModel):
             nn.Linear(self.text_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         self.prott5_transform = nn.Sequential(
             nn.Linear(self.prott5_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         self.esm_transform = nn.Sequential(
             nn.Linear(self.esm_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
 
         gate_in = self.text_dim + self.prott5_dim + self.esm_dim
@@ -1513,17 +1513,17 @@ class EnhancedTripleModalityFusionLoss(AblationModel):
         self.text_prott5_interaction = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         self.text_esm_interaction = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         self.prott5_esm_interaction = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(0.2)
         )
         self.triple_interaction = nn.Sequential(
             nn.Linear(self.hidden_dim * 3, self.hidden_dim),
@@ -1620,8 +1620,477 @@ class EnhancedTripleModalityFusionLoss(AblationModel):
 
         # Return diversity loss for trainer to add into criterion
         return output, self.interpretability_data, diversity_loss
+
+
+# --- Model 11A: Add text-prott5 interaction to Model 10 ---
+class Model11A_TextProtT5Interaction(AblationModel):
+    """Model 11A: Add text-prott5 interaction to Model 10."""
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.requires_esm = True
+        
+        # Same as Model 10
+        self.text_transform = nn.Sequential(
+            nn.Linear(self.text_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        self.prott5_transform = nn.Sequential(
+            nn.Linear(self.prott5_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        self.esm_transform = nn.Sequential(
+            nn.Linear(self.esm_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        # Adaptive gates (same as Model 10)
+        self.gate_network = nn.Sequential(
+            nn.Linear(self.text_dim + self.prott5_dim + self.esm_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, 3)
+        )
+        
+        self.temperature = nn.Parameter(torch.tensor(1.5))
+        
+        self.gate_adjuster = nn.Sequential(
+            nn.Linear(self.text_dim + self.prott5_dim + self.esm_dim, self.hidden_dim // 2),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim // 2, 3),
+            nn.Tanh()
+        )
+        
+        # ADD: text-prott5 interaction (previously missing in Model 10)
+        self.text_prott5_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        # Existing interactions from Model 10
+        self.text_esm_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        self.prott5_esm_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        # Final fusion updated for 3 interactions instead of 2
+        self.fusion = nn.Sequential(
+            nn.Linear(self.hidden_dim * 6, self.hidden_dim * 2),  # 3 modalities + 3 interactions
+            nn.LayerNorm(self.hidden_dim * 2),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, self.output_dim)
+        )
+        
+        self.diversity_weight = nn.Parameter(torch.tensor(0.01))
+        
+    def compute_adaptive_gates(self, text_features, prott5_features, esm_features):
+        concat_features = torch.cat([text_features, prott5_features, esm_features], dim=-1)
+        gate_logits = self.gate_network(concat_features)
+        adjustments = self.gate_adjuster(concat_features)
+        gate_logits = gate_logits + adjustments * 0.5
+        gates = F.softmax(gate_logits / self.temperature, dim=-1)
+        return gates[:, 0:1], gates[:, 1:2], gates[:, 2:3]
+    
+    def compute_diversity_loss(self, text_h, prott5_h, esm_h):
+        sim_tp = F.cosine_similarity(text_h, prott5_h, dim=-1).mean()
+        sim_te = F.cosine_similarity(text_h, esm_h, dim=-1).mean()
+        sim_pe = F.cosine_similarity(prott5_h, esm_h, dim=-1).mean()
+        return (sim_tp + sim_te + sim_pe) / 3.0
+        
+    def forward(self, text_features, prott5_features, esm_features):
+        if esm_features is None:
+            raise ValueError("This model requires ESM features")
+            
+        text_h = self.text_transform(text_features)
+        prott5_h = self.prott5_transform(prott5_features)
+        esm_h = self.esm_transform(esm_features)
+        
+        text_gate, prott5_gate, esm_gate = self.compute_adaptive_gates(
+            text_features, prott5_features, esm_features
+        )
+        
+        gated_text = text_h * text_gate
+        gated_prott5 = prott5_h * prott5_gate
+        gated_esm = esm_h * esm_gate
+        
+        # All pairwise interactions (including new text-prott5)
+        text_prott5_interact = self.text_prott5_interaction(
+            torch.cat([gated_text, gated_prott5], dim=-1)
+        )
+        text_esm_interact = self.text_esm_interaction(
+            torch.cat([gated_text, gated_esm], dim=-1)
+        )
+        prott5_esm_interact = self.prott5_esm_interaction(
+            torch.cat([gated_prott5, gated_esm], dim=-1)
+        )
+        
+        combined = torch.cat([
+            gated_text, gated_prott5, gated_esm,
+            text_prott5_interact, text_esm_interact, prott5_esm_interact
+        ], dim=-1)
+        
+        output = self.fusion(combined)
+        
+        if self.training:
+            diversity_loss = self.compute_diversity_loss(text_h, prott5_h, esm_h)
+            output = output - self.diversity_weight * diversity_loss.unsqueeze(-1)
+        
+        gates_tensor = torch.cat([text_gate, prott5_gate, esm_gate], dim=1)
+        batch_mean_gates = gates_tensor.mean(dim=0)
+        dominant_idx = int(batch_mean_gates.argmax().item())
+        dominant_name = ['text', 'prott5', 'esm'][dominant_idx]
+        gate_entropy = -(gates_tensor * torch.log(gates_tensor + 1e-8)).sum(dim=1).mean().item()
+
+        self.interpretability_data = {
+            'text_gate': text_gate.mean().item(),
+            'prott5_gate': prott5_gate.mean().item(),
+            'esm_gate': esm_gate.mean().item(),
+            'temperature': self.temperature.item(),
+            'gate_entropy': gate_entropy,
+            'dominant_modality': dominant_name,
+            'diversity_loss': diversity_loss.item() if self.training else 0.0
+        }
+        
+        return output, self.interpretability_data
+
+
+# --- Model 11B: Add dynamic diversity weight scheduling to Model 10 ---
+class Model11B_DynamicDiversity(AblationModel):
+    """Model 11B: Add dynamic diversity weight scheduling to Model 10."""
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.requires_esm = True
+        
+        # Same as Model 10
+        self.text_transform = nn.Sequential(
+            nn.Linear(self.text_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        self.prott5_transform = nn.Sequential(
+            nn.Linear(self.prott5_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        self.esm_transform = nn.Sequential(
+            nn.Linear(self.esm_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        self.gate_network = nn.Sequential(
+            nn.Linear(self.text_dim + self.prott5_dim + self.esm_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, 3)
+        )
+        
+        self.temperature = nn.Parameter(torch.tensor(1.5))
+        
+        self.gate_adjuster = nn.Sequential(
+            nn.Linear(self.text_dim + self.prott5_dim + self.esm_dim, self.hidden_dim // 2),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim // 2, 3),
+            nn.Tanh()
+        )
+        
+        self.text_esm_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        self.prott5_esm_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        self.fusion = nn.Sequential(
+            nn.Linear(self.hidden_dim * 5, self.hidden_dim * 2),
+            nn.LayerNorm(self.hidden_dim * 2),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, self.output_dim)
+        )
+        
+        # ADD: Dynamic diversity weight based on gate entropy
+        self.base_diversity_weight = nn.Parameter(torch.tensor(0.01))
+        self.diversity_scaler = nn.Sequential(
+            nn.Linear(1, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1),
+            nn.Sigmoid()
+        )
+        
+    def compute_adaptive_gates(self, text_features, prott5_features, esm_features):
+        concat_features = torch.cat([text_features, prott5_features, esm_features], dim=-1)
+        gate_logits = self.gate_network(concat_features)
+        adjustments = self.gate_adjuster(concat_features)
+        gate_logits = gate_logits + adjustments * 0.5
+        gates = F.softmax(gate_logits / self.temperature, dim=-1)
+        return gates[:, 0:1], gates[:, 1:2], gates[:, 2:3]
+    
+    def compute_diversity_loss(self, text_h, prott5_h, esm_h):
+        sim_tp = F.cosine_similarity(text_h, prott5_h, dim=-1).mean()
+        sim_te = F.cosine_similarity(text_h, esm_h, dim=-1).mean()
+        sim_pe = F.cosine_similarity(prott5_h, esm_h, dim=-1).mean()
+        return (sim_tp + sim_te + sim_pe) / 3.0
+        
+    def forward(self, text_features, prott5_features, esm_features):
+        if esm_features is None:
+            raise ValueError("This model requires ESM features")
+            
+        text_h = self.text_transform(text_features)
+        prott5_h = self.prott5_transform(prott5_features)
+        esm_h = self.esm_transform(esm_features)
+        
+        text_gate, prott5_gate, esm_gate = self.compute_adaptive_gates(
+            text_features, prott5_features, esm_features
+        )
+        
+        # Compute gate entropy for dynamic diversity weight
+        gates_tensor = torch.cat([text_gate, prott5_gate, esm_gate], dim=1)
+        gate_entropy = -(gates_tensor * torch.log(gates_tensor + 1e-8)).sum(dim=1, keepdim=True)
+        
+        # Dynamic diversity weight: higher when gates are more uniform (high entropy)
+        diversity_scale = self.diversity_scaler(gate_entropy.mean().unsqueeze(0))
+        dynamic_diversity_weight = self.base_diversity_weight * (1 + 2 * diversity_scale)
+        
+        gated_text = text_h * text_gate
+        gated_prott5 = prott5_h * prott5_gate
+        gated_esm = esm_h * esm_gate
+        
+        text_esm_interact = self.text_esm_interaction(
+            torch.cat([gated_text, gated_esm], dim=-1)
+        )
+        prott5_esm_interact = self.prott5_esm_interaction(
+            torch.cat([gated_prott5, gated_esm], dim=-1)
+        )
+        
+        combined = torch.cat([
+            gated_text, gated_prott5, gated_esm,
+            text_esm_interact, prott5_esm_interact
+        ], dim=-1)
+        
+        output = self.fusion(combined)
+        
+        if self.training:
+            diversity_loss = self.compute_diversity_loss(text_h, prott5_h, esm_h)
+            output = output - dynamic_diversity_weight * diversity_loss.unsqueeze(-1)
+        
+        batch_mean_gates = gates_tensor.mean(dim=0)
+        dominant_idx = int(batch_mean_gates.argmax().item())
+        dominant_name = ['text', 'prott5', 'esm'][dominant_idx]
+
+        self.interpretability_data = {
+            'text_gate': text_gate.mean().item(),
+            'prott5_gate': prott5_gate.mean().item(),
+            'esm_gate': esm_gate.mean().item(),
+            'temperature': self.temperature.item(),
+            'gate_entropy': gate_entropy.mean().item(),
+            'dominant_modality': dominant_name,
+            'diversity_weight': dynamic_diversity_weight.item() if self.training else self.base_diversity_weight.item(),
+            'diversity_loss': diversity_loss.item() if self.training else 0.0
+        }
+        
+        return output, self.interpretability_data
+
+
+# --- Model 11C: Add mixture of experts for aspect-specific learning to Model 10 ---
+class Model11C_MixtureOfExperts(AblationModel):
+    """Model 11C: Add mixture of experts for aspect-specific learning to Model 10."""
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.requires_esm = True
+        
+        # Same as Model 10
+        self.text_transform = nn.Sequential(
+            nn.Linear(self.text_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        self.prott5_transform = nn.Sequential(
+            nn.Linear(self.prott5_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        self.esm_transform = nn.Sequential(
+            nn.Linear(self.esm_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        self.gate_network = nn.Sequential(
+            nn.Linear(self.text_dim + self.prott5_dim + self.esm_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(self.hidden_dim, 3)
+        )
+        
+        self.temperature = nn.Parameter(torch.tensor(1.5))
+        
+        self.gate_adjuster = nn.Sequential(
+            nn.Linear(self.text_dim + self.prott5_dim + self.esm_dim, self.hidden_dim // 2),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim // 2, 3),
+            nn.Tanh()
+        )
+        
+        self.text_esm_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        self.prott5_esm_interaction = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        # ADD: Mixture of 3 experts (one per GO aspect)
+        self.num_experts = 3
+        self.experts = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(self.hidden_dim * 5, self.hidden_dim * 2),
+                nn.LayerNorm(self.hidden_dim * 2),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+                nn.LayerNorm(self.hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(0.2)
+            ) for _ in range(self.num_experts)
+        ])
+        
+        # Expert selection gating
+        self.expert_gate = nn.Sequential(
+            nn.Linear(self.hidden_dim * 5, self.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim, self.num_experts),
+            nn.Softmax(dim=-1)
+        )
+        
+        # Final projection (shared)
+        self.final_projection = nn.Linear(self.hidden_dim, self.output_dim)
+        
+        self.diversity_weight = nn.Parameter(torch.tensor(0.01))
+        
+    def compute_adaptive_gates(self, text_features, prott5_features, esm_features):
+        concat_features = torch.cat([text_features, prott5_features, esm_features], dim=-1)
+        gate_logits = self.gate_network(concat_features)
+        adjustments = self.gate_adjuster(concat_features)
+        gate_logits = gate_logits + adjustments * 0.5
+        gates = F.softmax(gate_logits / self.temperature, dim=-1)
+        return gates[:, 0:1], gates[:, 1:2], gates[:, 2:3]
+    
+    def compute_diversity_loss(self, text_h, prott5_h, esm_h):
+        sim_tp = F.cosine_similarity(text_h, prott5_h, dim=-1).mean()
+        sim_te = F.cosine_similarity(text_h, esm_h, dim=-1).mean()
+        sim_pe = F.cosine_similarity(prott5_h, esm_h, dim=-1).mean()
+        return (sim_tp + sim_te + sim_pe) / 3.0
+        
+    def forward(self, text_features, prott5_features, esm_features):
+        if esm_features is None:
+            raise ValueError("This model requires ESM features")
+            
+        text_h = self.text_transform(text_features)
+        prott5_h = self.prott5_transform(prott5_features)
+        esm_h = self.esm_transform(esm_features)
+        
+        text_gate, prott5_gate, esm_gate = self.compute_adaptive_gates(
+            text_features, prott5_features, esm_features
+        )
+        
+        gated_text = text_h * text_gate
+        gated_prott5 = prott5_h * prott5_gate
+        gated_esm = esm_h * esm_gate
+        
+        text_esm_interact = self.text_esm_interaction(
+            torch.cat([gated_text, gated_esm], dim=-1)
+        )
+        prott5_esm_interact = self.prott5_esm_interaction(
+            torch.cat([gated_prott5, gated_esm], dim=-1)
+        )
+        
+        combined = torch.cat([
+            gated_text, gated_prott5, gated_esm,
+            text_esm_interact, prott5_esm_interact
+        ], dim=-1)
+        
+        # Mixture of experts
+        expert_weights = self.expert_gate(combined)
+        expert_outputs = []
+        for i, expert in enumerate(self.experts):
+            expert_outputs.append(expert(combined))
+        expert_outputs = torch.stack(expert_outputs, dim=1)  # (B, num_experts, hidden_dim)
+        
+        # Weighted combination of experts
+        mixed_output = (expert_outputs * expert_weights.unsqueeze(-1)).sum(dim=1)
+        output = self.final_projection(mixed_output)
+        
+        if self.training:
+            diversity_loss = self.compute_diversity_loss(text_h, prott5_h, esm_h)
+            output = output - self.diversity_weight * diversity_loss.unsqueeze(-1)
+        
+        gates_tensor = torch.cat([text_gate, prott5_gate, esm_gate], dim=1)
+        batch_mean_gates = gates_tensor.mean(dim=0)
+        dominant_idx = int(batch_mean_gates.argmax().item())
+        dominant_name = ['text', 'prott5', 'esm'][dominant_idx]
+        gate_entropy = -(gates_tensor * torch.log(gates_tensor + 1e-8)).sum(dim=1).mean().item()
+
+        self.interpretability_data = {
+            'text_gate': text_gate.mean().item(),
+            'prott5_gate': prott5_gate.mean().item(),
+            'esm_gate': esm_gate.mean().item(),
+            'temperature': self.temperature.item(),
+            'gate_entropy': gate_entropy,
+            'dominant_modality': dominant_name,
+            'expert_weights': expert_weights.mean(dim=0).tolist(),
+            'diversity_loss': diversity_loss.item() if self.training else 0.0
+        }
+        
+        return output, self.interpretability_data
 class AblationStudy:
-    """Main ablation study coordinator."""
+    """Refined ablation study coordinator with focus on performance metrics."""
     
     def __init__(self, config_path: str, output_dir: str):
         self.config_path = Path(config_path)
@@ -1633,14 +2102,13 @@ class AblationStudy:
             self.base_config = yaml.safe_load(f)
             
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        # Correct output dimension per GO aspect
         self.aspect_output_dims = {
             'BPO': 3992,
             'CCO': 551,
             'MFO': 677
         }
         self.results = {}
-        self.interpretability_results = defaultdict(list)
+        self.performance_metrics = defaultdict(lambda: defaultdict(dict))
         
     def prepare_datasets(self, aspect: str):
         """Prepare datasets for the given aspect."""
@@ -1668,12 +2136,11 @@ class AblationStudy:
         
         return train_dataset, valid_dataset
     
-    def train_model(self, model: AblationModel, model_name: str, aspect: str,
-                   train_dataset, valid_dataset, epochs: int = 100):
-        """Train a single ablation model."""
+    def train_model(self, model, model_name: str, aspect: str,
+                   train_dataset, valid_dataset, epochs: int = 30):
+        """Train a single ablation model with performance tracking."""
         logger.info(f"\nTraining {model_name} on {aspect}")
-        # Allow models that explicitly require ESM (e.g., TripleModalityAdaptiveFusion) to consume ESM,
-        # as well as dedicated _esm baselines.
+        
         use_esm = getattr(model, 'requires_esm', False) or model_name.endswith('_esm')
         
         train_loader = torch.utils.data.DataLoader(
@@ -1695,24 +2162,28 @@ class AblationStudy:
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0.01)
         criterion = nn.BCEWithLogitsLoss()
         early_stop = EarlyStop(patience=5, min_epochs=10)
-        diversity_weight = self.base_config.get('optim', {}).get('diversity_weight', 0.01)
+        diversity_weight = 0.01
         
+        # Tracking metrics
         best_fmax = 0.0
-        history = []
-        interpretability_samples = []
+        best_epoch = 0
+        history = {
+            'train_loss': [],
+            'val_loss': [],
+            'fmax': [],
+            'overfitting_gap': []
+        }
         
         for epoch in range(1, epochs + 1):
             # Training
             model.train()
-            train_loss = 0
+            train_losses = []
             
-            for batch in tqdm(train_loader, desc=f"Epoch {epoch}"):
+            for batch in train_loader:
                 names, features, labels = batch
                 labels = labels.to(self.device)
-
-                # Forward pass with graceful handling of missing modality features
+    
                 try:
-                    # Prepare modality‑specific inputs
                     text_input = features.get('text', None)
                     prott5_input = features.get('prott5', None)
                     esm_input = features.get('esm', None) if use_esm else None
@@ -1722,35 +2193,32 @@ class AblationStudy:
                         prott5_input.to(self.device) if prott5_input is not None else None,
                         esm_input.to(self.device) if esm_input is not None else None
                     )
+                    
                     if isinstance(out, tuple) and len(out) == 3:
                         predictions, interp_data, diversity_loss = out
                     else:
                         predictions, interp_data = out
                         diversity_loss = None
+                        
                 except ValueError as e:
-                    logger.warning(f"Skipping batch in training due to missing modality features: {e}")
+                    logger.warning(f"Skipping batch: {e}")
                     continue
 
                 main_loss = criterion(predictions, labels)
                 loss = main_loss + (diversity_weight * diversity_loss if diversity_loss is not None else 0.0)
 
-                # Backward pass
                 optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
 
-                train_loss += loss.item()
-
-                # Collect interpretability data
-                if len(interpretability_samples) < 100:
-                    interpretability_samples.append(interp_data)
+                train_losses.append(loss.item())
             
             # Validation
             model.eval()
-            val_loss = 0
+            val_losses = []
             all_preds = []
             all_labels = []
-            val_interp_data = []
             
             with torch.no_grad():
                 for batch in valid_loader:
@@ -1767,45 +2235,49 @@ class AblationStudy:
                             prott5_input.to(self.device) if prott5_input is not None else None,
                             esm_input.to(self.device) if esm_input is not None else None
                         )
-                        if isinstance(out, tuple):
-                            predictions, interp_data = out[0], out[1]
-                        else:
-                            predictions, interp_data = out
+                        
+                        predictions = out[0] if isinstance(out, tuple) else out
+                        
                     except ValueError as e:
-                        logger.warning(f"Skipping batch in validation due to missing modality features: {e}")
+                        logger.warning(f"Skipping validation batch: {e}")
                         continue
 
                     loss = criterion(predictions, labels)
-                    val_loss += loss.item()
+                    val_losses.append(loss.item())
 
                     all_preds.append(torch.sigmoid(predictions).cpu())
                     all_labels.append(labels.cpu())
-                    val_interp_data.append(interp_data)
             
             # Calculate metrics
-            all_preds = torch.cat(all_preds)
-            all_labels = torch.cat(all_labels)
-            fmax = calculate_fmax(all_preds, all_labels)
+            avg_train_loss = np.mean(train_losses)
+            avg_val_loss = np.mean(val_losses)
+            
+            if all_preds:
+                all_preds = torch.cat(all_preds)
+                all_labels = torch.cat(all_labels)
+                fmax = calculate_fmax(all_preds, all_labels)
+            else:
+                fmax = 0.0
+            
+            overfitting_gap = avg_val_loss - avg_train_loss
+            
+            # Store history
+            history['train_loss'].append(avg_train_loss)
+            history['val_loss'].append(avg_val_loss)
+            history['fmax'].append(fmax)
+            history['overfitting_gap'].append(overfitting_gap)
             
             # Log progress
-            avg_train_loss = train_loss / len(train_loader)
-            avg_val_loss = val_loss / len(valid_loader)
-            
             logger.info(f"Epoch {epoch}: Train Loss: {avg_train_loss:.4f}, "
-                       f"Val Loss: {avg_val_loss:.4f}, F-max: {fmax:.4f}")
-            
-            history.append({
-                'epoch': epoch,
-                'train_loss': avg_train_loss,
-                'val_loss': avg_val_loss,
-                'fmax': fmax
-            })
+                       f"Val Loss: {avg_val_loss:.4f}, F-max: {fmax:.4f}, "
+                       f"Overfit Gap: {overfitting_gap:.4f}")
             
             # Early stopping
             early_stop(-fmax, fmax, model)
             
             if fmax > best_fmax:
                 best_fmax = fmax
+                best_epoch = epoch
                 torch.save(model.state_dict(), 
                           self.output_dir / f"{model_name}_{aspect}_best.pt")
             
@@ -1813,456 +2285,462 @@ class AblationStudy:
                 logger.info(f"Early stopping at epoch {epoch}")
                 break
         
-        # Analyze interpretability data
-        interp_analysis = self.analyze_interpretability(
-            interpretability_samples + val_interp_data,
-            model_name, aspect
-        )
-        
-        return {
+        # Calculate final metrics
+        final_metrics = {
             'best_fmax': best_fmax,
+            'best_epoch': best_epoch,
             'final_epoch': epoch,
-            'history': history,
-            'interpretability': interp_analysis
+            'avg_overfitting_gap': np.mean(history['overfitting_gap'][-5:]),
+            'final_train_loss': history['train_loss'][-1],
+            'final_val_loss': history['val_loss'][-1],
+            'convergence_epoch': self._find_convergence_epoch(history['val_loss']),
+            'history': history
         }
+        
+        return final_metrics
     
-    def analyze_interpretability(self, interp_data_list: List[Dict], 
-                                model_name: str, aspect: str) -> Dict:
-        """Analyze interpretability data collected during training."""
-        if not interp_data_list:
-            return {}
-        
-        analysis = defaultdict(list)
-        
-        # Aggregate data
-        for data in interp_data_list:
-            for key, value in data.items():
-                if isinstance(value, (int, float)):
-                    analysis[key].append(value)
-                elif isinstance(value, dict):
-                    for subkey, subvalue in value.items():
-                        analysis[f"{key}_{subkey}"].append(subvalue)
-        
-        # Compute statistics
-        stats = {}
-        for key, values in analysis.items():
-            if values:
-                stats[key] = {
-                    'mean': np.mean(values),
-                    'std': np.std(values),
-                    'min': np.min(values),
-                    'max': np.max(values),
-                    'median': np.median(values)
-                }
-        
-        # Save detailed analysis
-        analysis_file = self.output_dir / f"{model_name}_{aspect}_interpretability.json"
-        with open(analysis_file, 'w') as f:
-            json.dump(stats, f, indent=2)
-        
-        return stats
+    def _find_convergence_epoch(self, val_losses, threshold=0.001, window=5):
+        """Find epoch where model converged (val loss stabilized)."""
+        if len(val_losses) < window:
+            return len(val_losses)
+            
+        for i in range(window, len(val_losses)):
+            recent_losses = val_losses[i-window:i]
+            if np.std(recent_losses) < threshold:
+                return i
+        return len(val_losses)
     
     def run_complete_study(self):
         """Run the complete ablation study."""
-        logger.info("Starting complete ablation study")
+        logger.info("Starting refined ablation study")
         
-        aspects = ['BPO', 'CCO', 'MFO']
+        # Import model classes (assuming they're defined in the same file or imported)
+        from ablation_study import (
+            SingleModalityBaseline, SimpleConcatenation, TransformedConcatenation,
+            SimpleGatedFusion, CrossModalGatedFusion, FullGatedFusion,
+            AdaptiveGatedFusion, AttentionFusion, HierarchicalFusion,
+            EnsembleFusion, TripleModalityAdaptiveFusion, 
+            EnhancedTripleModalityFusion, EnhancedTripleModalityFusionLoss
+        )
+        
+        aspects = ['MFO', 'BPO', 'CCO']
         
         for aspect in aspects:
             logger.info(f"\n{'='*50}")
             logger.info(f"Processing {aspect}")
             logger.info(f"{'='*50}")
             
-            output_dim = self.aspect_output_dims.get(aspect, 677)
-
+            output_dim = self.aspect_output_dims[aspect]
+            
+            # Define models to test
             ablation_models = {
-                '0_baseline_text':   SingleModalityBaseline(modality='text',   output_dim=output_dim),
+                '0_baseline_text': SingleModalityBaseline(modality='text', output_dim=output_dim),
                 '0_baseline_prott5': SingleModalityBaseline(modality='prott5', output_dim=output_dim),
-                '0_baseline_esm':    SingleModalityBaseline(modality='esm',    output_dim=output_dim),
-                '1_simple_concat':   SimpleConcatenation(output_dim=output_dim),
+                '0_baseline_esm': SingleModalityBaseline(modality='esm', output_dim=output_dim),
+                '1_simple_concat': SimpleConcatenation(output_dim=output_dim),
                 '2_transformed_concat': TransformedConcatenation(output_dim=output_dim),
-                '3_simple_gated':    SimpleGatedFusion(output_dim=output_dim),
+                '3_simple_gated': SimpleGatedFusion(output_dim=output_dim),
                 '4_crossmodal_gated': CrossModalGatedFusion(output_dim=output_dim),
-                '5_full_gated':      FullGatedFusion(output_dim=output_dim),
-                '6_adaptive_gated':  AdaptiveGatedFusion(output_dim=output_dim),
+                '5_full_gated': FullGatedFusion(output_dim=output_dim),
+                '6_adaptive_gated': AdaptiveGatedFusion(output_dim=output_dim),
                 '7_attention_fusion': AttentionFusion(output_dim=output_dim),
                 '8_hierarchical_fusion': HierarchicalFusion(output_dim=output_dim),
                 '9_ensemble_fusion': EnsembleFusion(output_dim=output_dim),
                 '10_triple_adaptive': TripleModalityAdaptiveFusion(output_dim=output_dim),
                 '11_enhanced_triple': EnhancedTripleModalityFusion(output_dim=output_dim),
+                'Model11A_TextProtT5Interaction': Model11A_TextProtT5Interaction(output_dim=output_dim),
+                'Model11B_DynamicDiversity': Model11B_DynamicDiversity(output_dim=output_dim),
+                'Model11C_MixtureOfExperts': Model11C_MixtureOfExperts(output_dim=output_dim),
                 '12_enhanced_triple_loss': EnhancedTripleModalityFusionLoss(output_dim=output_dim),
             }
-            # Prepare datasets once per aspect to reuse the in‑memory cache
-            train_dataset, valid_dataset = self.prepare_datasets(aspect)
-            aspect_results = {}
             
+            # Prepare datasets
+            train_dataset, valid_dataset = self.prepare_datasets(aspect)
+            
+            # Train all models
             for model_name, model in ablation_models.items():
-                results = self.train_model(model, model_name, aspect,
-                                           train_dataset, valid_dataset)
-                aspect_results[model_name] = results
+                metrics = self.train_model(model, model_name, aspect,
+                                         train_dataset, valid_dataset)
+                self.performance_metrics[aspect][model_name] = metrics
                 
                 # Save individual results
-                result_file = self.output_dir / f"{model_name}_{aspect}_results.json"
+                result_file = self.output_dir / f"{model_name}_{aspect}_metrics.json"
                 with open(result_file, 'w') as f:
                     json.dump({
                         'model': model_name,
                         'aspect': aspect,
-                        'best_fmax': results['best_fmax'],
-                        'final_epoch': results['final_epoch'],
-                        'interpretability_summary': results['interpretability']
+                        'best_fmax': metrics['best_fmax'],
+                        'best_epoch': metrics['best_epoch'],
+                        'final_epoch': metrics['final_epoch'],
+                        'avg_overfitting_gap': metrics['avg_overfitting_gap'],
+                        'convergence_epoch': metrics['convergence_epoch']
                     }, f, indent=2)
             
-            self.results[aspect] = aspect_results
-            
             # Generate aspect report
-            self.generate_aspect_report(aspect, aspect_results)
-            self.ablation_models = ablation_models  # keep reference for later analysis
+            self.generate_aspect_report(aspect)
         
-        # Generate final comprehensive report
+        # Generate comprehensive report
         self.generate_comprehensive_report()
+        
+        # Create visualizations
+        self.create_performance_visualizations()
     
-    def generate_aspect_report(self, aspect: str, results: Dict):
-        """Generate report for a single aspect."""
-        report_file = self.output_dir / f"{aspect}_ablation_report.md"
+    def generate_aspect_report(self, aspect: str):
+        """Generate performance report for a single aspect."""
+        report_file = self.output_dir / f"{aspect}_performance_report.md"
+        metrics = self.performance_metrics[aspect]
         
         with open(report_file, 'w') as f:
-            f.write(f"# Ablation Study Report for {aspect}\n\n")
+            f.write(f"# Performance Report: {aspect}\n\n")
             
             # Performance comparison table
-            f.write("## Performance Comparison\n\n")
-            f.write("| Model | Best F-max | Improvement | Key Insights |\n")
-            f.write("|-------|------------|-------------|-------------|\n")
+            f.write("## Model Performance Comparison\n\n")
+            f.write("| Model | F-max | Best Epoch | Convergence | Overfit Gap | Status |\n")
+            f.write("|-------|-------|------------|-------------|-------------|--------|\n")
             
-            # Find a baseline to use as reference
-            baseline_fmax = None
-            baseline_name = None
-            for model_name in ['0_baseline_text', '0_baseline_esm', '0_baseline_prott5']:
-                if model_name in results:
-                    baseline_fmax = results[model_name]['best_fmax']
-                    baseline_name = model_name
-                    break
-            
-            if baseline_fmax is None:
-                logger.warning("No baseline model found")
-                return
-            
-            for model_name in sorted(results.keys()):
-                model_results = results[model_name]
-                fmax = model_results['best_fmax']
-                improvement = ((fmax - baseline_fmax) / baseline_fmax) * 100
-                
-                # Extract key insights
-                insights = self.extract_insights(model_name, model_results['interpretability'])
-                
-                f.write(f"| {model_name} | {fmax:.4f} | {improvement:+.2f}% | {insights} |\n")
-
-            # Interpretability analysis
-            f.write("\n## Interpretability Analysis\n\n")
-
-            for model_name in ['4_crossmodal_gated', '5_full_gated']:
-                if model_name in results:
-                    interp = results[model_name]['interpretability']
-                    f.write(f"\n### {model_name}\n\n")
-                    
-                    if 'text_gate_mean' in interp:
-                        f.write(f"- Average text gate: {interp['text_gate_mean']['mean']:.3f} "
-                               f"(±{interp['text_gate_mean']['std']:.3f})\n")
-                    if 'prott5_gate_mean' in interp:
-                        f.write(f"- Average ProtT5 gate: {interp['prott5_gate_mean']['mean']:.3f} "
-                               f"(±{interp['prott5_gate_mean']['std']:.3f})\n")
-                    if 'dominant_modality' in interp:
-                        # Count dominant modality
-                        text_dominant = sum(1 for d in results[model_name]['interpretability'].get('dominant_modality', []) 
-                                          if d == 'text')
-                        total = len(results[model_name]['interpretability'].get('dominant_modality', []))
-                        if total > 0:
-                            f.write(f"- Text dominant in {text_dominant/total*100:.1f}% of samples\n")
-    
-    def extract_insights(self, model_name: str, interp_data: Dict) -> str:
-        """Extract key insights from interpretability data."""
-        insights = []
-        
-        if '0_baseline' in model_name:
-            if 'text' in model_name:
-                modality = 'Text'
-            elif 'prott5' in model_name:
-                modality = 'ProtT5'
-            elif 'esm' in model_name:
-                modality = 'ESM'
-            else:
-                modality = 'Unknown'
-            insights.append(f"{modality} only baseline")
-            
-        elif '1_simple_concat' in model_name:
-            if 'magnitude_ratio' in interp_data:
-                ratio = interp_data['magnitude_ratio']['mean']
-                insights.append(f"Text/ProtT5 magnitude ratio: {ratio:.2f}")
-                
-        elif '2_transformed' in model_name:
-            if 'cosine_similarity' in interp_data:
-                sim = interp_data['cosine_similarity']['mean']
-                insights.append(f"Feature similarity: {sim:.3f}")
-                
-        elif 'gated' in model_name:
-            if 'text_gate_mean' in interp_data and 'prott5_gate_mean' in interp_data:
-                text_gate = interp_data['text_gate_mean']['mean']
-                prott5_gate = interp_data['prott5_gate_mean']['mean']
-                
-                if text_gate > prott5_gate * 1.2:
-                    insights.append("Text-dominant gating")
-                elif prott5_gate > text_gate * 1.2:
-                    insights.append("ProtT5-dominant gating")
-                else:
-                    insights.append("Balanced gating")
-                    
-            if 'gate_sparsity_text' in interp_data:
-                sparsity = interp_data['gate_sparsity_text']['mean']
-                if sparsity > 0.3:
-                    insights.append(f"High text gate sparsity ({sparsity:.2f})")
-        
-        return "; ".join(insights) if insights else "N/A"
-    
-    def generate_comprehensive_report(self):
-        """Generate final comprehensive report across all aspects."""
-        report_file = self.output_dir / "comprehensive_ablation_report.md"
-        
-        with open(report_file, 'w') as f:
-            f.write("# Comprehensive Gated Fusion Ablation Study\n\n")
-            f.write("## Executive Summary\n\n")
-            
-            # Overall performance gains
-            f.write("### Performance Gains by Component\n\n")
-            
-            components = {
-                '1_simple_concat': 'Simple Concatenation',
-                '2_transformed_concat': 'Feature Transformation',
-                '3_simple_gated': 'Basic Gating',
-                '4_crossmodal_gated': 'Cross-Modal Gating',
-                '5_full_gated': 'Full Model (with residuals & processors)'
+            # Find best baseline for comparison
+            baseline_scores = {
+                name: metrics[name]['best_fmax'] 
+                for name in metrics.keys() 
+                if '0_baseline' in name
             }
             
-            f.write("| Component | BPO Gain | CCO Gain | MFO Gain | Average |\n")
-            f.write("|-----------|----------|----------|----------|----------|\n")
+            if baseline_scores:
+                best_baseline_name = max(baseline_scores, key=baseline_scores.get)
+                best_baseline_score = baseline_scores[best_baseline_name]
+            else:
+                best_baseline_score = 0.0
+                logger.warning(f"No baseline found for {aspect}")
             
-            for model_id, model_name in components.items():
-                gains = []
-                for aspect in ['BPO', 'CCO', 'MFO']:
-                    if aspect in self.results and model_id in self.results[aspect]:
-                        baseline = self.results[aspect]['0_baseline_text']['best_fmax']
-                        current = self.results[aspect][model_id]['best_fmax']
-                        gain = ((current - baseline) / baseline) * 100
-                        gains.append(gain)
-                    else:
-                        gains.append(0)
+            # Sort models by performance
+            sorted_models = sorted(metrics.items(), 
+                                 key=lambda x: x[1]['best_fmax'], 
+                                 reverse=True)
+            
+            for model_name, model_metrics in sorted_models:
+                fmax = model_metrics['best_fmax']
+                best_epoch = model_metrics['best_epoch']
+                convergence = model_metrics['convergence_epoch']
+                overfit_gap = model_metrics['avg_overfitting_gap']
                 
-                avg_gain = np.mean(gains)
-                f.write(f"| {model_name} | {gains[0]:+.1f}% | {gains[1]:+.1f}% | "
-                       f"{gains[2]:+.1f}% | {avg_gain:+.1f}% |\n")
+                # Determine status
+                if overfit_gap > 0.5:
+                    status = "⚠️ High Overfit"
+                elif overfit_gap > 0.2:
+                    status = "⚡ Moderate Overfit"
+                else:
+                    status = "✅ Good"
+                
+                # Calculate improvement
+                if '0_baseline' not in model_name and best_baseline_score > 0:
+                    improvement = ((fmax - best_baseline_score) / best_baseline_score) * 100
+                    fmax_str = f"{fmax:.4f} (+{improvement:.1f}%)"
+                else:
+                    fmax_str = f"{fmax:.4f}"
+                
+                f.write(f"| {model_name} | {fmax_str} | {best_epoch} | "
+                       f"{convergence} | {overfit_gap:.3f} | {status} |\n")
             
-            # Modality importance analysis
-            f.write("\n### Modality Importance by GO Aspect\n\n")
-            self.analyze_modality_importance(f)
+            # Training dynamics analysis
+            f.write("\n## Training Dynamics\n\n")
             
-            # Key findings
-            f.write("\n### Key Findings\n\n")
-            self.summarize_key_findings(f)
+            # Models with concerning overfitting
+            overfit_models = [
+                (name, metrics[name]['avg_overfitting_gap'])
+                for name in metrics.keys()
+                if metrics[name]['avg_overfitting_gap'] > 0.2
+            ]
             
-            # Visualizations
-            self.create_visualizations()
-            f.write("\n### Visualizations\n\n")
-            f.write("See generated plots in the output directory:\n")
-            f.write("- `ablation_performance.png`: Performance progression\n")
-            f.write("- `gate_distributions.png`: Gate value distributions\n")
-            f.write("- `modality_importance.png`: Modality importance by aspect\n")
+            if overfit_models:
+                f.write("### ⚠️ Models with High Overfitting\n\n")
+                for model_name, gap in sorted(overfit_models, key=lambda x: x[1], reverse=True):
+                    f.write(f"- **{model_name}**: Gap = {gap:.3f}\n")
+            
+            # Best performing fusion models
+            f.write("\n### 🏆 Top Fusion Models\n\n")
+            fusion_models = {
+                name: metrics[name]['best_fmax']
+                for name in metrics.keys()
+                if '0_baseline' not in name
+            }
+            
+            top_3 = sorted(fusion_models.items(), key=lambda x: x[1], reverse=True)[:3]
+            for i, (name, score) in enumerate(top_3, 1):
+                improvement = ((score - best_baseline_score) / best_baseline_score) * 100 if best_baseline_score > 0 else 0
+                f.write(f"{i}. **{name}**: F-max = {score:.4f} (+{improvement:.1f}% vs best baseline)\n")
     
-    def analyze_modality_importance(self, f):
-        """Analyze which modality is more important for each aspect."""
-        importance_data = []
+    def generate_comprehensive_report(self):
+        """Generate comprehensive report across all aspects."""
+        report_file = self.output_dir / "comprehensive_performance_report.md"
+        
+        with open(report_file, 'w') as f:
+            f.write("# Comprehensive Ablation Study Report\n\n")
+            f.write("## Executive Summary\n\n")
+            
+            # Overall best models
+            f.write("### Best Models by Aspect\n\n")
+            f.write("| Aspect | Best Model | F-max | Improvement | Overfit Status |\n")
+            f.write("|--------|------------|-------|-------------|----------------|\n")
+            
+            for aspect in ['BPO', 'CCO', 'MFO']:
+                if aspect not in self.performance_metrics:
+                    continue
+                    
+                metrics = self.performance_metrics[aspect]
+                
+                # Find best model
+                best_model = max(metrics.items(), key=lambda x: x[1]['best_fmax'])
+                model_name, model_metrics = best_model
+                
+                # Find best baseline
+                baseline_scores = {
+                    name: metrics[name]['best_fmax']
+                    for name in metrics.keys()
+                    if '0_baseline' in name
+                }
+                
+                if baseline_scores:
+                    best_baseline = max(baseline_scores.values())
+                    improvement = ((model_metrics['best_fmax'] - best_baseline) / best_baseline) * 100
+                else:
+                    improvement = 0.0
+                
+                # Overfit status
+                overfit_gap = model_metrics['avg_overfitting_gap']
+                if overfit_gap > 0.5:
+                    status = "High"
+                elif overfit_gap > 0.2:
+                    status = "Moderate"
+                else:
+                    status = "Low"
+                
+                f.write(f"| {aspect} | {model_name} | {model_metrics['best_fmax']:.4f} | "
+                       f"+{improvement:.1f}% | {status} |\n")
+            
+            # Component analysis
+            f.write("\n### Component Impact Analysis\n\n")
+            self._analyze_component_impact(f)
+            
+            # Overfitting analysis
+            f.write("\n### Overfitting Analysis\n\n")
+            self._analyze_overfitting_patterns(f)
+            
+            # Model recommendations
+            f.write("\n### Recommendations\n\n")
+            self._generate_recommendations(f)
+    
+    def _analyze_component_impact(self, f):
+        """Analyze impact of each architectural component."""
+        components = [
+            ('1_simple_concat', 'Concatenation'),
+            ('2_transformed_concat', '+ Transformation'),
+            ('3_simple_gated', '+ Simple Gating'),
+            ('4_crossmodal_gated', '+ Cross-modal Gating'),
+            ('5_full_gated', '+ Full Architecture')
+        ]
+        
+        f.write("| Component | Avg Improvement | Consistency |\n")
+        f.write("|-----------|-----------------|-------------|\n")
+        
+        for model_id, component_name in components:
+            improvements = []
+            
+            for aspect in ['BPO', 'CCO', 'MFO']:
+                if aspect not in self.performance_metrics:
+                    continue
+                    
+                metrics = self.performance_metrics[aspect]
+                if model_id not in metrics:
+                    continue
+                
+                # Compare to best baseline
+                baseline_scores = [
+                    metrics[name]['best_fmax']
+                    for name in metrics.keys()
+                    if '0_baseline' in name
+                ]
+                
+                if baseline_scores:
+                    baseline = max(baseline_scores)
+                    improvement = ((metrics[model_id]['best_fmax'] - baseline) / baseline) * 100
+                    improvements.append(improvement)
+            
+            if improvements:
+                avg_improvement = np.mean(improvements)
+                consistency = np.std(improvements)
+                
+                f.write(f"| {component_name} | +{avg_improvement:.1f}% | "
+                       f"{'High' if consistency < 5 else 'Low'} |\n")
+    
+    def _analyze_overfitting_patterns(self, f):
+        """Analyze overfitting patterns across models."""
+        overfit_data = []
         
         for aspect in ['BPO', 'CCO', 'MFO']:
-            if aspect not in self.results:
+            if aspect not in self.performance_metrics:
                 continue
                 
-            # Compare single modality baselines
-            text_fmax = self.results[aspect].get('0_baseline_text', {}).get('best_fmax', 0)
-            prott5_fmax = self.results[aspect].get('0_baseline_prott5', {}).get('best_fmax', 0)
-            esm_fmax = self.results[aspect].get('0_baseline_esm', {}).get('best_fmax', 0)
-            
-            # Analyze gate values from full model
-            if '5_full_gated' in self.results[aspect]:
-                interp = self.results[aspect]['5_full_gated']['interpretability']
-                text_gate = interp.get('text_gate_mean', {}).get('mean', 0.5)
-                prott5_gate = interp.get('prott5_gate_mean', {}).get('mean', 0.5)
-                
-                importance_data.append({
-                    'Aspect': aspect,
-                    'Text Baseline': text_fmax,
-                    'ProtT5 Baseline': prott5_fmax,
-                    'ESM Baseline': esm_fmax,
-                    'Text Gate': text_gate,
-                    'ProtT5 Gate': prott5_gate,
-                    'Dominant': 'Text' if text_gate > prott5_gate else 'ProtT5'
+            for model_name, metrics in self.performance_metrics[aspect].items():
+                overfit_data.append({
+                    'model': model_name,
+                    'aspect': aspect,
+                    'gap': metrics['avg_overfitting_gap'],
+                    'convergence': metrics['convergence_epoch']
                 })
         
-        # Write table
-        f.write("| Aspect | Text F-max | ProtT5 F-max | ESM F-max | Avg Text Gate | Avg ProtT5 Gate | Dominant |\n")
-        f.write("|--------|------------|--------------|-----------|---------------|-----------------|----------|\n")
+        # Models with highest overfitting
+        worst_overfit = sorted(overfit_data, key=lambda x: x['gap'], reverse=True)[:5]
         
-        for data in importance_data:
-            f.write(f"| {data['Aspect']} | {data['Text Baseline']:.4f} | "
-                   f"{data['ProtT5 Baseline']:.4f} | {data['ESM Baseline']:.4f} | "
-                   f"{data['Text Gate']:.3f} | {data['ProtT5 Gate']:.3f} | {data['Dominant']} |\n")
+        f.write("**Models Most Prone to Overfitting:**\n\n")
+        for item in worst_overfit:
+            f.write(f"- {item['model']} ({item['aspect']}): Gap = {item['gap']:.3f}\n")
+        
+        # Models with best generalization
+        best_general = sorted(overfit_data, key=lambda x: x['gap'])[:5]
+        
+        f.write("\n**Models with Best Generalization:**\n\n")
+        for item in best_general:
+            f.write(f"- {item['model']} ({item['aspect']}): Gap = {item['gap']:.3f}\n")
     
-    def summarize_key_findings(self, f):
-        """Summarize key findings from the ablation study."""
-        findings = []
+    def _generate_recommendations(self, f):
+        """Generate recommendations based on analysis."""
+        # Find overall best models
+        best_models = {}
         
-        # 1. Which components provide the most gain?
-        avg_gains = defaultdict(list)
-        for aspect in self.results:
-            # Find a baseline
-            baseline = None
-            for baseline_name in ['0_baseline_text', '0_baseline_esm', '0_baseline_prott5']:
-                if baseline_name in self.results[aspect]:
-                    baseline = self.results[aspect][baseline_name]['best_fmax']
-                    break
-            
-            if baseline is None:
+        for aspect in ['BPO', 'CCO', 'MFO']:
+            if aspect not in self.performance_metrics:
                 continue
                 
-            for model_name, results in self.results[aspect].items():
-                if '0_baseline' not in model_name:
-                    gain = ((results['best_fmax'] - baseline) / baseline) * 100
-                    avg_gains[model_name].append(gain)
+            metrics = self.performance_metrics[aspect]
+            
+            # Filter models with acceptable overfitting
+            good_models = {
+                name: m for name, m in metrics.items()
+                if m['avg_overfitting_gap'] < 0.2
+            }
+            
+            if good_models:
+                best = max(good_models.items(), key=lambda x: x[1]['best_fmax'])
+                best_models[aspect] = best[0]
         
-        best_component = max(avg_gains.items(), key=lambda x: np.mean(x[1]))
-        findings.append(f"1. **Largest performance gain**: {best_component[0]} "
-                       f"(avg {np.mean(best_component[1]):.1f}% improvement)")
+        f.write("**Recommended Models by Task:**\n\n")
+        for aspect, model in best_models.items():
+            f.write(f"- **{aspect}**: {model} (balanced performance and generalization)\n")
         
-        # 2. Is cross-modal gating beneficial?
-        if '3_simple_gated' in avg_gains and '4_crossmodal_gated' in avg_gains:
-            simple_avg = np.mean(avg_gains['3_simple_gated'])
-            cross_avg = np.mean(avg_gains['4_crossmodal_gated'])
-            benefit = cross_avg - simple_avg
-            findings.append(f"2. **Cross-modal gating benefit**: {benefit:.1f}% additional gain")
-        
-        # 3. Modality preferences by aspect
-        modality_prefs = []
-        for aspect in ['BPO', 'CCO', 'MFO']:
-            if aspect in self.results and '5_full_gated' in self.results[aspect]:
-                interp = self.results[aspect]['5_full_gated']['interpretability']
-                if 'text_gate_mean' in interp and 'prott5_gate_mean' in interp:
-                    text_gate = interp['text_gate_mean']['mean']
-                    prott5_gate = interp['prott5_gate_mean']['mean']
-                    if text_gate > prott5_gate * 1.2:
-                        modality_prefs.append(f"{aspect}: Text-dominant")
-                    elif prott5_gate > text_gate * 1.2:
-                        modality_prefs.append(f"{aspect}: ProtT5-dominant")
-                    else:
-                        modality_prefs.append(f"{aspect}: Balanced")
-        
-        if modality_prefs:
-            findings.append(f"3. **Modality preferences**: {', '.join(modality_prefs)}")
-        
-        # Write findings
-        for finding in findings:
-            f.write(f"\n{finding}\n")
+        f.write("\n**General Recommendations:**\n\n")
+        f.write("1. **For production**: Use models with overfitting gap < 0.2\n")
+        f.write("2. **For research**: Enhanced triple modality models show promise\n")
+        f.write("3. **For efficiency**: Adaptive gated models balance performance and complexity\n")
     
-    def create_visualizations(self):
-        """Create visualization plots for the ablation study."""
-        # 1. Performance progression plot
+    def create_performance_visualizations(self):
+        """Create performance visualization plots."""
+        # 1. Performance comparison across aspects
         fig, axes = plt.subplots(1, 3, figsize=(15, 5))
         
         for idx, aspect in enumerate(['BPO', 'CCO', 'MFO']):
-            if aspect not in self.results:
+            if aspect not in self.performance_metrics:
                 continue
                 
             ax = axes[idx]
+            metrics = self.performance_metrics[aspect]
             
             # Extract data
-            models = []
-            performances = []
+            models = list(metrics.keys())
+            scores = [metrics[m]['best_fmax'] for m in models]
+            overfit_gaps = [metrics[m]['avg_overfitting_gap'] for m in models]
             
-            for model_name in sorted(self.results[aspect].keys()):
-                models.append(model_name.split('_', 1)[1])  # Remove number prefix
-                performances.append(self.results[aspect][model_name]['best_fmax'])
+            # Create scatter plot
+            scatter = ax.scatter(scores, overfit_gaps, s=100, alpha=0.6)
             
-            # Plot
-            ax.plot(range(len(models)), performances, 'o-', linewidth=2, markersize=8)
-            ax.set_xticks(range(len(models)))
-            ax.set_xticklabels(models, rotation=45, ha='right')
-            ax.set_ylabel('F-max')
-            ax.set_title(f'{aspect} Performance Progression')
-            ax.grid(True, alpha=0.3)
+            # Add labels for interesting points
+            for i, model in enumerate(models):
+                if '0_baseline' in model or i % 2 == 0:  # Label some points
+                    ax.annotate(model.split('_')[1], (scores[i], overfit_gaps[i]), 
+                              fontsize=8, alpha=0.7)
+            
+            ax.set_xlabel('F-max Score')
+            ax.set_ylabel('Overfitting Gap')
+            ax.set_title(f'{aspect}: Performance vs Overfitting')
+            ax.grid(True, alpha=0.2)
+            
+            # Add regions
+            ax.axhline(y=0.2, color='r', linestyle='--', alpha=0.5, label='High overfit threshold')
+            ax.axhline(y=0.1, color='g', linestyle='--', alpha=0.5, label='Good generalization')
         
         plt.tight_layout()
-        plt.savefig(self.output_dir / 'ablation_performance.png', dpi=150, bbox_inches='tight')
+        plt.savefig(self.output_dir / 'performance_vs_overfitting.png', dpi=150, bbox_inches='tight')
         plt.close()
         
-        # 2. Gate distributions (if available)
-        if any('5_full_gated' in self.results.get(aspect, {}) for aspect in ['BPO', 'CCO', 'MFO']):
-            fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        # 2. Learning curves for top models
+        fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+        axes = axes.flatten()
+        
+        plot_idx = 0
+        for aspect in ['BPO', 'CCO', 'MFO']:
+            if aspect not in self.performance_metrics:
+                continue
+                
+            # Get top 2 models
+            metrics = self.performance_metrics[aspect]
+            top_models = sorted(metrics.items(), 
+                              key=lambda x: x[1]['best_fmax'], 
+                              reverse=True)[:2]
             
-            for idx, aspect in enumerate(['BPO', 'CCO', 'MFO']):
-                if aspect in self.results and '5_full_gated' in self.results[aspect]:
-                    ax = axes[idx]
+            for model_name, model_metrics in top_models:
+                if plot_idx >= 6:
+                    break
                     
-                    model = self.ablation_models['5_full_gated']
-                    if hasattr(model, 'gate_statistics') and model.gate_statistics:
-                        text_gates = model.gate_statistics.get('text_gates', [])
-                        prott5_gates = model.gate_statistics.get('prott5_gates', [])
-                        
-                        if text_gates and prott5_gates:
-                            ax.hist(text_gates, bins=30, alpha=0.5, label='Text', density=True)
-                            ax.hist(prott5_gates, bins=30, alpha=0.5, label='ProtT5', density=True)
-                            ax.set_xlabel('Gate Value')
-                            ax.set_ylabel('Density')
-                            ax.set_title(f'{aspect} Gate Distributions')
-                            ax.legend()
-            
-            plt.tight_layout()
-            plt.savefig(self.output_dir / 'gate_distributions.png', dpi=150, bbox_inches='tight')
-            plt.close()
+                ax = axes[plot_idx]
+                history = model_metrics['history']
+                
+                epochs = range(1, len(history['train_loss']) + 1)
+                ax.plot(epochs, history['train_loss'], label='Train Loss', linewidth=2)
+                ax.plot(epochs, history['val_loss'], label='Val Loss', linewidth=2)
+                
+                ax.set_xlabel('Epoch')
+                ax.set_ylabel('Loss')
+                ax.set_title(f'{model_name} ({aspect})')
+                ax.legend()
+                ax.grid(True, alpha=0.2)
+                
+                plot_idx += 1
+        
+        plt.tight_layout()
+        plt.savefig(self.output_dir / 'learning_curves.png', dpi=150, bbox_inches='tight')
+        plt.close()
 
 
 def main():
     """Main execution function."""
     import argparse
     
-    parser = argparse.ArgumentParser(description="Gated Fusion Ablation Study")
+    parser = argparse.ArgumentParser(description="Refined Ablation Study")
     parser.add_argument('--config', type=str, 
                        default='/SAN/bioinf/PFP/PFP/experiments/cafa3_integration/configs/ablation_config.yaml',
                        help='Configuration file')
     parser.add_argument('--output-dir', type=str,
                        default='/SAN/bioinf/PFP/PFP/experiments/gated_fusion_ablation',
                        help='Output directory for results')
-    parser.add_argument('--aspects', nargs='+', default=['BPO', 'CCO', 'MFO'],
-                       help='GO aspects to evaluate')
     
     args = parser.parse_args()
     
-    # Create base config if it doesn't exist
+    # Create base config if needed
     if not Path(args.config).exists():
         base_config = {
             'experiment_name': 'gated_fusion_ablation',
             'dataset': {
-                'features': ['text', 'prott5'],
+                'features': ['text', 'prott5', 'esm'],
                 'batch_size': 32
             },
             'model': {
-                'hidden_dim': 512,
-                'output_dim': 677  # Will be updated per aspect
+                'hidden_dim': 512
             },
             'optim': {
                 'lr': 1e-4,
                 'weight_decay': 0.01,
                 'epochs': 30,
                 'patience': 5,
-                'min_epochs': 10,
-                'gradient_clip': 1.0
-            },
-            'log': {
-                'out_dir': args.output_dir
+                'min_epochs': 10
             }
         }
         
@@ -2270,7 +2748,7 @@ def main():
         with open(args.config, 'w') as f:
             yaml.dump(base_config, f)
     
-    # Run ablation study
+    # Run study
     study = AblationStudy(args.config, args.output_dir)
     study.run_complete_study()
 

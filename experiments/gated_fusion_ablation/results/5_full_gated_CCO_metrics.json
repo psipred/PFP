@@ -1,0 +1,9 @@
+{
+  "model": "5_full_gated",
+  "aspect": "CCO",
+  "best_fmax": 0.7101448774337769,
+  "best_epoch": 12,
+  "final_epoch": 17,
+  "avg_overfitting_gap": 0.00692480724682948,
+  "convergence_epoch": 8
+}

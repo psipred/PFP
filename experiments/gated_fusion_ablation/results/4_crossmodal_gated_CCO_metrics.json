@@ -1,0 +1,9 @@
+{
+  "model": "4_crossmodal_gated",
+  "aspect": "CCO",
+  "best_fmax": 0.7117719650268555,
+  "best_epoch": 11,
+  "final_epoch": 16,
+  "avg_overfitting_gap": 0.009125661790720642,
+  "convergence_epoch": 7
+}

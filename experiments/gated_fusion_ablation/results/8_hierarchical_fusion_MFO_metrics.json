@@ -1,0 +1,9 @@
+{
+  "model": "8_hierarchical_fusion",
+  "aspect": "MFO",
+  "best_fmax": 0.6669582724571228,
+  "best_epoch": 29,
+  "final_epoch": 30,
+  "avg_overfitting_gap": 0.009113673283476719,
+  "convergence_epoch": 9
+}

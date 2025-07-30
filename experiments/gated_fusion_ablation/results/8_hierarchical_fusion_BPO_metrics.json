@@ -1,0 +1,9 @@
+{
+  "model": "8_hierarchical_fusion",
+  "aspect": "BPO",
+  "best_fmax": 0.49661606550216675,
+  "best_epoch": 28,
+  "final_epoch": 30,
+  "avg_overfitting_gap": 0.00757248025407968,
+  "convergence_epoch": 8
+}

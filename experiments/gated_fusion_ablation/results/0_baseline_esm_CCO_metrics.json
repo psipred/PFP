@@ -1,0 +1,9 @@
+{
+  "model": "0_baseline_esm",
+  "aspect": "CCO",
+  "best_fmax": 0.7032811045646667,
+  "best_epoch": 18,
+  "final_epoch": 23,
+  "avg_overfitting_gap": 0.004645261084919926,
+  "convergence_epoch": 8
+}

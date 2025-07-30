@@ -1,0 +1,9 @@
+{
+  "model": "9_ensemble_fusion",
+  "aspect": "CCO",
+  "best_fmax": 0.7067858576774597,
+  "best_epoch": 13,
+  "final_epoch": 18,
+  "avg_overfitting_gap": 0.005181100349816639,
+  "convergence_epoch": 7
+}

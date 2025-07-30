@@ -1,0 +1,9 @@
+{
+  "model": "9_ensemble_fusion",
+  "aspect": "BPO",
+  "best_fmax": 0.4948540925979614,
+  "best_epoch": 20,
+  "final_epoch": 25,
+  "avg_overfitting_gap": 0.005669604467918439,
+  "convergence_epoch": 7
+}

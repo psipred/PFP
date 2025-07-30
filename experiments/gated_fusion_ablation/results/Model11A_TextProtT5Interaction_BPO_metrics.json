@@ -1,0 +1,9 @@
+{
+  "model": "Model11A_TextProtT5Interaction",
+  "aspect": "BPO",
+  "best_fmax": 0.500638484954834,
+  "best_epoch": 27,
+  "final_epoch": 30,
+  "avg_overfitting_gap": 0.011498943806513638,
+  "convergence_epoch": 8
+}

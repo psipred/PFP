@@ -1,0 +1,9 @@
+{
+  "model": "Model11B_DynamicDiversity",
+  "aspect": "MFO",
+  "best_fmax": 0.6667536497116089,
+  "best_epoch": 26,
+  "final_epoch": 30,
+  "avg_overfitting_gap": 0.013016021345199243,
+  "convergence_epoch": 9
+}

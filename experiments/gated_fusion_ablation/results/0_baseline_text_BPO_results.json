@@ -1,15 +1,15 @@
 {
   "model": "0_baseline_text",
   "aspect": "BPO",
-  "best_fmax": 0.47204798460006714,
-  "final_epoch": 38,
+  "best_fmax": 0.4729083776473999,
+  "final_epoch": 39,
   "interpretability_summary": {
     "feature_magnitude": {
-      "mean": 30.324128068168207,
-      "std": 0.2989761067616068,
+      "mean": 30.30484707670392,
+      "std": 0.2945043440189555,
       "min": 29.508705139160156,
       "max": 31.35690689086914,
-      "median": 30.333126068115234
+      "median": 30.28561782836914
     }
   }
 }

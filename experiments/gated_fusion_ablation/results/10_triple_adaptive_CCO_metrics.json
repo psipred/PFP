@@ -1,0 +1,9 @@
+{
+  "model": "10_triple_adaptive",
+  "aspect": "CCO",
+  "best_fmax": 0.7116941213607788,
+  "best_epoch": 18,
+  "final_epoch": 23,
+  "avg_overfitting_gap": 0.014435569135286397,
+  "convergence_epoch": 8
+}

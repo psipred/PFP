@@ -1,0 +1,9 @@
+{
+  "model": "4_crossmodal_gated",
+  "aspect": "BPO",
+  "best_fmax": 0.498016893863678,
+  "best_epoch": 28,
+  "final_epoch": 30,
+  "avg_overfitting_gap": 0.011672349857169476,
+  "convergence_epoch": 7
+}

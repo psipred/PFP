@@ -1,0 +1,9 @@
+{
+  "model": "0_baseline_prott5",
+  "aspect": "CCO",
+  "best_fmax": 0.7089097499847412,
+  "best_epoch": 20,
+  "final_epoch": 25,
+  "avg_overfitting_gap": 0.007839587297811068,
+  "convergence_epoch": 7
+}

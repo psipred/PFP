@@ -1,0 +1,9 @@
+{
+  "model": "7_attention_fusion",
+  "aspect": "MFO",
+  "best_fmax": 0.6399516463279724,
+  "best_epoch": 23,
+  "final_epoch": 28,
+  "avg_overfitting_gap": 0.004602451030301118,
+  "convergence_epoch": 9
+}
