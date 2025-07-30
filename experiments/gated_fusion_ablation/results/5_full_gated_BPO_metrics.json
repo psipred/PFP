@@ -1,9 +1,9 @@
 {
   "model": "5_full_gated",
   "aspect": "BPO",
-  "best_fmax": 0.49285396933555603,
-  "best_epoch": 29,
+  "best_fmax": 0.48711898922920227,
+  "best_epoch": 30,
   "final_epoch": 30,
-  "avg_overfitting_gap": 0.00890964838719822,
+  "avg_overfitting_gap": 0.0053581080068479505,
   "convergence_epoch": 8
 }

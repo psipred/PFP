@@ -1,9 +1,9 @@
 {
   "model": "1_simple_concat",
   "aspect": "BPO",
-  "best_fmax": 0.4947831928730011,
-  "best_epoch": 27,
+  "best_fmax": 0.4930642247200012,
+  "best_epoch": 29,
   "final_epoch": 30,
-  "avg_overfitting_gap": 0.006384720742488066,
+  "avg_overfitting_gap": 0.004962858413477569,
   "convergence_epoch": 7
 }
