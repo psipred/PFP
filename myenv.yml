@@ -1,0 +1,4 @@
+name: pfp
+channels:
+  - defaults
+prefix: /SAN/bioinf/PFP/conda/miniconda3/envs/pfp
