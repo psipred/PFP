@@ -1,4 +1,7 @@
-name: pfp
+name: train
 channels:
   - defaults
-prefix: /SAN/bioinf/PFP/conda/miniconda3/envs/pfp
+dependencies:
+  - python=3.10
+  - sentencepiece
+prefix: /SAN/bioinf/PFP/conda/miniconda3/envs/train
