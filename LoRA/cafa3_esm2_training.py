@@ -37,6 +37,8 @@ class Config:
     # GO Aspects to use
     GO_ASPECTS = ["mf", "bp", "cc"]  # molecular function, biological process, cellular component
     
+
+
     # Model settings
     MODEL_NAME = "facebook/esm2_t33_650M_UR50D"
     MAX_SEQ_LENGTH = 1022  # ESM2 max minus special tokens
@@ -44,12 +46,13 @@ class Config:
     # Training settings
     BATCH_SIZE = 128
     LEARNING_RATE = 1e-4
+
     NUM_EPOCHS = 20
     GRADIENT_ACCUMULATION_STEPS = 4
     
     # Memory/performance settings
     USE_AMP = True  # Enable mixed precision
-    AMP_DTYPE = 'auto'  # 'auto' | 'fp16' | 'bf16' | 'none'
+    AMP_DTYPE = 'fp16'  # 'auto' | 'fp16' | 'bf16' | 'none'
     ENABLE_GRADIENT_CHECKPOINTING = True  # Save activation memory
     
     # LoRA settings
@@ -58,13 +61,13 @@ class Config:
     LORA_TARGET_MODULES = ["query", "value"]
     
     # Data settings
-    MIN_GO_FREQUENCY = 0.01  # Minimum frequency of positive samples for a GO term
-    MAX_GO_FREQUENCY = 0.99  # Maximum frequency (to filter out too common terms)
+    MIN_GO_FREQUENCY = 0  # Minimum frequency of positive samples for a GO term
+    MAX_GO_FREQUENCY = 1  # Maximum frequency (to filter out too common terms)
     
     # Debug settings
     DEBUG_MODE = False
-    DEBUG_SAMPLES = 1000
-    DEBUG_GO_TERMS = 100  # Number of GO terms to use in debug mode
+    DEBUG_SAMPLES = 100
+    DEBUG_GO_TERMS = 50  # Number of GO terms to use in debug mode
     
     # Output paths
     OUTPUT_DIR = Path("./cafa3_experiments")
@@ -184,11 +187,9 @@ class CAFA3DataLoader:
         self.go_columns = [col for col in self.train_data.columns if col.startswith('GO:')]
         print(f"📊 Found {len(self.go_columns)} GO terms")
         
-        # Filter sequences by length
-        print(f"✂️  Filtering sequences longer than {self.config.MAX_SEQ_LENGTH}...")
-        self.train_data = self.train_data[self.train_data['sequences'].str.len() <= self.config.MAX_SEQ_LENGTH]
-        self.val_data = self.val_data[self.val_data['sequences'].str.len() <= self.config.MAX_SEQ_LENGTH]
-        self.test_data = self.test_data[self.test_data['sequences'].str.len() <= self.config.MAX_SEQ_LENGTH]
+        # Do not filter by raw sequence length; rely on tokenizer truncation
+        # Sequences longer than MAX_SEQ_LENGTH will be truncated during tokenization
+        print(f"✂️  Not filtering by length; sequences > {self.config.MAX_SEQ_LENGTH} will be truncated at tokenization")
         
         # Filter GO terms by frequency
         self.filter_go_terms_by_frequency()
@@ -272,6 +273,10 @@ class CAFA3Dataset(Dataset):
     
     def __getitem__(self, idx):
         # Return raw sequence and label; tokenization happens in collate_fn
+        # print(self.labels[idx])
+        # print(self.sequences[idx])
+
+        # exit()
         return {
             'sequence': self.sequences[idx],
             'labels': self.labels[idx]
@@ -709,7 +714,6 @@ def main(go_aspect: str = "mf", debug_mode: bool = False, use_lora: bool = True)
         train_dataset, 
         batch_size=config.BATCH_SIZE, 
         shuffle=True,
-        num_workers=2,
         pin_memory=True,
         collate_fn=collate_fn
     )
@@ -717,7 +721,6 @@ def main(go_aspect: str = "mf", debug_mode: bool = False, use_lora: bool = True)
         val_dataset, 
         batch_size=config.BATCH_SIZE, 
         shuffle=False,
-        num_workers=2,
         pin_memory=True,
         collate_fn=collate_fn
     )
@@ -725,7 +728,6 @@ def main(go_aspect: str = "mf", debug_mode: bool = False, use_lora: bool = True)
         test_dataset, 
         batch_size=config.BATCH_SIZE, 
         shuffle=False,
-        num_workers=2,
         pin_memory=True,
         collate_fn=collate_fn
     )
