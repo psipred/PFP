@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-ESM2 MLP Fine-tuning with Optional Graph Propagation
-Add --use_graph flag to enable GO DAG propagation
+ESM2 MLP Fine-tuning with CAFA Evaluation
+Add --use_graph flag to enable GO DAG graph convolution
 """
 
 import os
@@ -19,8 +19,17 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
+# Import CAFA evaluator
+try:
+    from cafaeval.evaluation import cafa_eval, write_results
+    CAFA_AVAILABLE = True
+except ImportError:
+    print("Warning: cafaeval not installed. CAFA metrics will not be available.")
+    print("Install with: pip install cafaeval")
+    CAFA_AVAILABLE = False
+
 # ============================================================================
-# GO DAG Parser - NEW
+# GO DAG Parser
 # ============================================================================
 
 class GODagParser:
@@ -28,11 +37,11 @@ class GODagParser:
     
     def __init__(self, obo_path: str):
         self.obo_path = Path(obo_path)
-        self.go_terms = {}  # id -> {name, namespace, parents}
+        self.go_terms = {}
         
     def parse(self):
         """Parse OBO file"""
-        print(f"📖 Parsing GO OBO file: {self.obo_path}")
+        print(f"Parsing GO OBO file: {self.obo_path}")
         
         with open(self.obo_path, 'r') as f:
             lines = f.readlines()
@@ -63,104 +72,80 @@ class GODagParser:
         print(f"  Found {len(self.go_terms)} GO terms")
         return self.go_terms
     
-    def build_adjacency_matrix(self, go_list: List[str], normalize: bool = True):
-        """
-        Build adjacency matrix for specific GO terms
-        A[i,j] = 1 if GO_i is parent of GO_j (child -> parent)
-        """
+    def build_adjacency_matrix(self, go_list: List[str]):
+        """Build adjacency matrix for graph convolution"""
         n = len(go_list)
         go_to_idx = {go: i for i, go in enumerate(go_list)}
         
-        # Build adjacency matrix
         A = np.zeros((n, n), dtype=np.float32)
         
         for i, go_id in enumerate(go_list):
+            A[i, i] = 1.0
+            
             if go_id in self.go_terms:
                 parents = self.go_terms[go_id]['parents']
                 for parent in parents:
                     if parent in go_to_idx:
                         j = go_to_idx[parent]
-                        A[j, i] = 1.0  # Parent j <- Child i
-        
-        # Add self-loops
-        A = A + np.eye(n, dtype=np.float32)
-        
-        # Normalize: D^(-1/2) * A * D^(-1/2)
-        if normalize:
-            rowsum = A.sum(axis=1)
-            d_inv_sqrt = np.power(rowsum, -0.5)
-            d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
-            D_inv_sqrt = np.diag(d_inv_sqrt)
-            A = D_inv_sqrt @ A @ D_inv_sqrt
+                        A[i, j] = 1.0
         
         print(f"  Adjacency matrix: {A.shape}, Edges: {(A > 0).sum()}, Density: {(A > 0).sum() / (n*n):.4f}")
         
-        return torch.FloatTensor(A)
+        A_sparse = torch.FloatTensor(A).to_sparse()
+        return A_sparse
 
 # ============================================================================
-# Configuration - UPDATED
+# Configuration
 # ============================================================================
 
 class Config:
     """Central configuration for CAFA3 experiments"""
     
-    # Data paths
     CAFA3_BASE = Path("/home/zijianzhou/Datasets/cafa3")
     ESM_EMBEDDINGS_DIR = Path("/home/zijianzhou/Datasets/esm")
     GO_OBO_PATH = CAFA3_BASE / "go.obo"
     
-    # Model settings
-    ESM_DIM = 1280  # ESM2 650M embedding dimension
-    
-    # Training settings
+    ESM_DIM = 1280
     BATCH_SIZE = 128
     LEARNING_RATE = 1e-3
     NUM_EPOCHS = 50
-    GRADIENT_ACCUMULATION_STEPS = 1
-    
-    # MLP settings
-    HIDDEN_DIM = 512
     DROPOUT = 0.3
     
-    # Graph settings - NEW
-    USE_GRAPH = False
-    GRAPH_HIDDEN_DIM = 256
-    
-    # Data settings
     MIN_GO_FREQUENCY = 0
     MAX_GO_FREQUENCY = 1
     
-    # Debug settings
     DEBUG_MODE = False
     DEBUG_SAMPLES = 100
     DEBUG_GO_TERMS = 50
     
-    # Output paths
-    OUTPUT_DIR = Path("./cafa3_mlp_experiments")
+    OUTPUT_DIR = Path("./cafa3_comparison_experiments")
     
     def __init__(self, go_aspect: str = "mf", debug_mode: bool = False, use_graph: bool = False):
         self.GO_ASPECT = go_aspect
         self.DEBUG_MODE = debug_mode
         self.USE_GRAPH = use_graph
         
-        # Create output directories
-        suffix = "_graph" if use_graph else "_baseline"
+        suffix = "_protgo" if use_graph else "_baseline"
         aspect_dir = self.OUTPUT_DIR / f"{go_aspect}{suffix}"
         self.CHECKPOINT_DIR = aspect_dir / "checkpoints"
         self.RESULTS_DIR = aspect_dir / "results"
+        self.CAFA_DIR = aspect_dir / "cafa_eval"
         
         self.CHECKPOINT_DIR.mkdir(exist_ok=True, parents=True)
         self.RESULTS_DIR.mkdir(exist_ok=True, parents=True)
+        self.CAFA_DIR.mkdir(exist_ok=True, parents=True)
         
         if debug_mode:
             self.NUM_EPOCHS = 2
-            print(f"🔧 Debug mode enabled")
+            print(f"Debug mode enabled")
         
         if use_graph:
-            print(f"🔗 Graph propagation ENABLED")
+            print(f"Graph convolution ENABLED (ProtGO method)")
+        else:
+            print(f"Baseline MLP (no graph)")
 
 # ============================================================================
-# Data Loader - SAME
+# Data Loader
 # ============================================================================
 
 class CAFA3DataLoader:
@@ -171,7 +156,7 @@ class CAFA3DataLoader:
         self.go_columns = []
         
     def load_aspect_data(self, aspect: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        print(f"📂 Loading {aspect.upper()} aspect data...")
+        print(f"Loading {aspect.upper()} aspect data...")
         
         train_path = self.config.CAFA3_BASE / f"{aspect}-training.csv"
         val_path = self.config.CAFA3_BASE / f"{aspect}-validation.csv"
@@ -190,23 +175,20 @@ class CAFA3DataLoader:
     def prepare_data(self) -> Tuple:
         train_data, val_data, test_data = self.load_aspect_data(self.config.GO_ASPECT)
         
-        # Get GO columns
         self.go_columns = [col for col in train_data.columns if col.startswith('GO:')]
-        print(f"📊 Found {len(self.go_columns)} GO terms")
+        print(f"Found {len(self.go_columns)} GO terms")
         
-        # Filter GO terms by frequency
         go_frequencies = train_data[self.go_columns].mean()
         valid_go_terms = go_frequencies[
             (go_frequencies >= self.config.MIN_GO_FREQUENCY) & 
             (go_frequencies <= self.config.MAX_GO_FREQUENCY)
         ].index.tolist()
         
-        print(f"📊 Filtered GO terms: {len(self.go_columns)} -> {len(valid_go_terms)}")
+        print(f"Filtered GO terms: {len(self.go_columns)} -> {len(valid_go_terms)}")
         self.go_columns = valid_go_terms
         
-        # Debug mode
         if self.config.DEBUG_MODE:
-            print(f"🔧 Debug mode: using {self.config.DEBUG_SAMPLES} samples")
+            print(f"Debug mode: using {self.config.DEBUG_SAMPLES} samples")
             train_data = train_data.head(self.config.DEBUG_SAMPLES)
             val_data = val_data.head(min(self.config.DEBUG_SAMPLES // 5, len(val_data)))
             test_data = test_data.head(min(self.config.DEBUG_SAMPLES // 5, len(test_data)))
@@ -214,7 +196,6 @@ class CAFA3DataLoader:
             if len(self.go_columns) > self.config.DEBUG_GO_TERMS:
                 self.go_columns = self.go_columns[:self.config.DEBUG_GO_TERMS]
         
-        # Extract data
         train_proteins = train_data['proteins'].tolist()
         val_proteins = val_data['proteins'].tolist()
         test_proteins = test_data['proteins'].tolist()
@@ -223,7 +204,7 @@ class CAFA3DataLoader:
         val_labels = val_data[self.go_columns].values.astype(np.float32)
         test_labels = test_data[self.go_columns].values.astype(np.float32)
         
-        print(f"\n📈 Dataset Statistics:")
+        print(f"\nDataset Statistics:")
         print(f"  GO Aspect: {self.config.GO_ASPECT.upper()}")
         print(f"  GO terms: {len(self.go_columns)}")
         print(f"  Train samples: {len(train_labels)}")
@@ -238,7 +219,7 @@ class CAFA3DataLoader:
                 self.go_columns)
 
 # ============================================================================
-# PyTorch Dataset - SAME
+# PyTorch Dataset
 # ============================================================================
 
 class CAFA3MLPDataset(Dataset):
@@ -249,8 +230,7 @@ class CAFA3MLPDataset(Dataset):
         self.labels = torch.FloatTensor(labels)
         self.embeddings_dir = embeddings_dir
         
-        # Pre-load all embeddings into memory for speed
-        print(f"📥 Pre-loading {len(proteins)} embeddings...")
+        print(f"Pre-loading {len(proteins)} embeddings...")
         self.embeddings = []
         missing_count = 0
         
@@ -261,11 +241,9 @@ class CAFA3MLPDataset(Dataset):
                 try:
                     embedding = np.load(emb_path, allow_pickle=True)
                     
-                    # Convert to float32 array
                     if isinstance(embedding, np.ndarray) and embedding.dtype == object:
                         embedding = embedding.item()
                     
-                    # Handle dict format
                     if isinstance(embedding, dict):
                         if 'mean' in embedding:
                             embedding = embedding['mean']
@@ -276,17 +254,13 @@ class CAFA3MLPDataset(Dataset):
                             if len(embedding.shape) == 2:
                                 embedding = embedding.mean(axis=0)
                     
-                    # Convert to numpy array
                     embedding = np.asarray(embedding, dtype=np.float32)
                     
-                    # Handle 2D arrays (take mean)
                     if len(embedding.shape) == 2:
                         embedding = embedding.mean(axis=0)
                     
-                    # Ensure 1D
                     embedding = embedding.flatten()
                     
-                    # Ensure correct dimension (1280)
                     if embedding.shape[0] != 1280:
                         if embedding.shape[0] > 1280:
                             embedding = embedding[:1280]
@@ -304,11 +278,10 @@ class CAFA3MLPDataset(Dataset):
                 missing_count += 1
         
         if missing_count > 0:
-            print(f"⚠️ Warning: {missing_count}/{len(proteins)} embeddings missing or failed to load")
+            print(f"Warning: {missing_count}/{len(proteins)} embeddings missing or failed to load")
         
-        # Convert to tensor
         self.embeddings = torch.FloatTensor(np.array(self.embeddings))
-        print(f"✅ Loaded embeddings shape: {self.embeddings.shape}")
+        print(f"Loaded embeddings shape: {self.embeddings.shape}")
     
     def __len__(self):
         return len(self.proteins)
@@ -317,69 +290,69 @@ class CAFA3MLPDataset(Dataset):
         return self.embeddings[idx], self.labels[idx]
 
 # ============================================================================
-# Model - UPDATED WITH GRAPH PROPAGATION
+# Model Components
 # ============================================================================
 
-class GraphPropagation(nn.Module):
-    """Graph propagation layer: H' = Â·H·W_A"""
-    
-    def __init__(self, num_features: int, adjacency_matrix: torch.Tensor):
+class GraphConvolution(nn.Module):
+    """Graph convolution layer from ProtGO"""
+    def __init__(self, input_dim: int, output_dim: int, bias: bool = True):
         super().__init__()
-        self.register_buffer('A', adjacency_matrix)  # Normalized adjacency matrix
-        self.W_A = nn.Linear(num_features, num_features, bias=False)  # Learnable transformation
+        self.weight = nn.Parameter(torch.FloatTensor(input_dim, output_dim))
+        nn.init.kaiming_normal_(self.weight)
         
-    def forward(self, H):
-        """
-        H: [batch_size, num_go_terms] - latent features
-        Returns: [batch_size, num_go_terms] - propagated features
-        """
-        # H' = Â·H·W_A
-        H_transformed = self.W_A(H)  # [B, N] -> [B, N]
-        H_propagated = H_transformed @ self.A.T  # [B, N] @ [N, N] = [B, N]
-        return H_propagated
+        if bias:
+            self.bias = nn.Parameter(torch.FloatTensor(output_dim))
+            nn.init.zeros_(self.bias)
+        else:
+            self.register_parameter('bias', None)
+    
+    def forward(self, input, adj):
+        support = torch.mm(input, self.weight)
+        output = torch.sparse.mm(adj, support.transpose(0, 1)).t()
+        
+        if self.bias is not None:
+            return output + self.bias
+        else:
+            return output
 
 
-class ESM2MLPClassifier(nn.Module):
-    """MLP classifier with optional graph propagation"""
+class ESM2Classifier(nn.Module):
+    """Unified classifier with optional graph convolution"""
     
     def __init__(self, config: Config, num_go_terms: int, adjacency_matrix=None):
         super().__init__()
         self.use_graph = config.USE_GRAPH
         
-        # MLP backbone (produces latent features H)
-        self.mlp = nn.Sequential(
-            nn.Linear(config.ESM_DIM, config.HIDDEN_DIM),
-            nn.LayerNorm(config.HIDDEN_DIM),
-            nn.ReLU(),
-            nn.Dropout(config.DROPOUT),
-            nn.Linear(config.HIDDEN_DIM, config.HIDDEN_DIM),
-            nn.LayerNorm(config.HIDDEN_DIM),
-            nn.ReLU(),
-            nn.Dropout(config.DROPOUT),
-        )
+        self.fc1 = nn.Linear(config.ESM_DIM, 512)
+        nn.init.kaiming_normal_(self.fc1.weight)
+        self.fc1.bias.data.fill_(0.01)
         
-        # Output projection
-        self.output_proj = nn.Linear(config.HIDDEN_DIM, num_go_terms)
+        self.relu1 = nn.ReLU()
+
+        self.fc2 = nn.Linear(512, num_go_terms)
+        nn.init.kaiming_normal_(self.fc2.weight)
+        self.fc2.bias.data.fill_(0.01)
         
-        # Graph propagation (optional)
         if self.use_graph:
-            assert adjacency_matrix is not None, "Adjacency matrix required for graph propagation"
-            self.graph_prop = GraphPropagation(num_go_terms, adjacency_matrix)
-            print(f"  🔗 Graph propagation layer added")
-        
+            assert adjacency_matrix is not None, "Adjacency matrix required for graph mode"
+            self.gc1 = GraphConvolution(num_go_terms, num_go_terms)
+            self.register_buffer('adj', adjacency_matrix)
+            print(f"  Model: FC1({config.ESM_DIM} -> {2*config.ESM_DIM}) -> ReLU -> FC2({2*config.ESM_DIM} -> {num_go_terms}) -> GraphConv({num_go_terms} -> {num_go_terms})")
+        else:
+            print(f"  Model: FC1({config.ESM_DIM} -> {2*config.ESM_DIM}) -> ReLU -> FC2({2*config.ESM_DIM} -> {num_go_terms})")
+    
     def forward(self, x):
-        # MLP produces latent features
-        features = self.mlp(x)  # [B, hidden_dim]
-        H = self.output_proj(features)  # [B, num_go_terms]
+        x = self.fc1(x)
+        x = self.relu1(x)
+        x = self.fc2(x)
         
-        # Optional graph propagation
         if self.use_graph:
-            H = self.graph_prop(H)  # H' = Â·H·W_A
+            x = self.gc1(x, self.adj)
         
-        return H  # Return logits
+        return x
 
 # ============================================================================
-# Trainer - SAME
+# Trainer
 # ============================================================================
 
 class Trainer:
@@ -391,26 +364,22 @@ class Trainer:
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
         self.model.to(self.device)
         
-        # Simple optimizer
-        self.optimizer = torch.optim.AdamW(
+        self.optimizer = torch.optim.Adam(
             model.parameters(),
-            lr=config.LEARNING_RATE,
-            weight_decay=0.01
+            lr=config.LEARNING_RATE
         )
         
-        # Learning rate scheduler
-        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        self.scheduler = torch.optim.lr_scheduler.StepLR(
             self.optimizer,
-            mode='min',
-            factor=0.5,
-            patience=3
+            step_size=5,
+            gamma=0.6
         )
         
         self.criterion = nn.BCEWithLogitsLoss()
         self.history = []
         
-        mode = "Graph" if config.USE_GRAPH else "Baseline"
-        print(f"🔧 Trainer: Device={self.device}, Mode={mode}")
+        mode = "ProtGO" if config.USE_GRAPH else "Baseline"
+        print(f"Trainer initialized: Device={self.device}, Mode={mode}, LR={config.LEARNING_RATE}")
         
     def train_epoch(self, dataloader):
         self.model.train()
@@ -420,11 +389,9 @@ class Trainer:
             embeddings = embeddings.to(self.device)
             labels = labels.to(self.device)
             
-            # Forward pass
             logits = self.model(embeddings)
             loss = self.criterion(logits, labels)
             
-            # Backward pass
             self.optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
@@ -458,7 +425,7 @@ class Trainer:
         metrics = self.calculate_metrics(all_labels, all_preds)
         avg_loss = total_loss / len(dataloader)
         
-        return avg_loss, metrics
+        return avg_loss, metrics, all_preds
     
     def calculate_metrics(self, y_true, y_pred, threshold=0.5):
         from sklearn.metrics import average_precision_score
@@ -496,13 +463,12 @@ class Trainer:
         patience = 5
         
         for epoch in range(num_epochs):
-            print(f"\n📍 Epoch {epoch + 1}/{num_epochs}")
+            print(f"\nEpoch {epoch + 1}/{num_epochs}")
             
             train_loss = self.train_epoch(train_loader)
-            val_loss, val_metrics = self.evaluate(val_loader)
+            val_loss, val_metrics, _ = self.evaluate(val_loader)
             
-            # Update learning rate
-            self.scheduler.step(val_loss)
+            self.scheduler.step()
             
             print(f"  Train Loss: {train_loss:.4f}")
             print(f"  Val Loss: {val_loss:.4f}")
@@ -519,24 +485,23 @@ class Trainer:
                 **val_metrics
             })
             
-            # Early stopping
             if val_metrics['f1'] > best_val_f1:
                 best_val_f1 = val_metrics['f1']
                 patience_counter = 0
                 self.save_checkpoint(epoch, val_metrics)
-                print(f"  ✅ New best model! F1: {best_val_f1:.3f}")
+                print(f"  New best model! F1: {best_val_f1:.3f}")
             else:
                 patience_counter += 1
                 print(f"  No improvement ({patience_counter}/{patience})")
                 
             if patience_counter >= patience:
-                print(f"  ⏹️ Early stopping at epoch {epoch + 1}")
+                print(f"  Early stopping at epoch {epoch + 1}")
                 break
         
         return self.history
     
     def save_checkpoint(self, epoch, metrics):
-        suffix = "_graph" if self.config.USE_GRAPH else "_baseline"
+        suffix = "_protgo" if self.config.USE_GRAPH else "_baseline"
         checkpoint = {
             'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
@@ -549,18 +514,115 @@ class Trainer:
         torch.save(checkpoint, path)
 
 # ============================================================================
-# Visualization - UPDATED
+# CAFA Evaluation
+# ============================================================================
+
+def run_cafa_evaluation(proteins, y_true, y_pred, go_terms, config, split_name="test"):
+    """Run CAFA evaluation and return metrics"""
+    
+    if not CAFA_AVAILABLE:
+        print("CAFA evaluator not available, skipping CAFA metrics")
+        return {}
+    
+    print(f"\nRunning CAFA evaluation on {split_name} set...")
+    
+    # Create temporary files for CAFA evaluation
+    pred_dir = config.CAFA_DIR / "predictions"
+    pred_dir.mkdir(exist_ok=True, parents=True)
+    
+    # Write prediction file
+    pred_file = pred_dir / f"{split_name}_predictions.tsv"
+    with open(pred_file, 'w') as f:
+        for i, protein in enumerate(proteins):
+            for j, go_term in enumerate(go_terms):
+                score = y_pred[i, j]
+                if score > 0:  # Only write non-zero predictions
+                    f.write(f"{protein}\t{go_term}\t{score:.6f}\n")
+    
+    # Write ground truth file
+    gt_file = config.CAFA_DIR / f"{split_name}_ground_truth.tsv"
+    with open(gt_file, 'w') as f:
+        for i, protein in enumerate(proteins):
+            for j, go_term in enumerate(go_terms):
+                if y_true[i, j] == 1:
+                    f.write(f"{protein}\t{go_term}\n")
+    
+    # Run CAFA evaluation
+    try:
+        results_df, best_scores = cafa_eval(
+            str(config.GO_OBO_PATH),
+            str(pred_dir),
+            str(gt_file),
+            norm='cafa',
+            prop='max'
+        )
+        
+        # Save detailed results
+        results_df.to_csv(config.CAFA_DIR / f"{split_name}_evaluation_all.tsv", sep='\t')
+        
+        # Extract best metrics (Fmax, Smin, wFmax)
+        cafa_metrics = {}
+        
+        # Fmax - Maximum F-measure
+        if 'f' in best_scores and not best_scores['f'].empty:
+            row = best_scores['f'].iloc[0]
+            cafa_metrics['fmax'] = row.get('f', 0.0)
+            cafa_metrics['fmax_precision'] = row.get('pr', 0.0)
+            cafa_metrics['fmax_recall'] = row.get('rc', 0.0)
+            cafa_metrics['fmax_threshold'] = row.get('tau', 0.0)
+        
+        # Smin - Minimum Semantic Distance
+        if 's' in best_scores and not best_scores['s'].empty:
+            row = best_scores['s'].iloc[0]
+            cafa_metrics['smin'] = row.get('s', 0.0)
+            cafa_metrics['smin_ru'] = row.get('ru', 0.0)  # Remaining uncertainty
+            cafa_metrics['smin_mi'] = row.get('mi', 0.0)  # Misinformation
+            cafa_metrics['smin_threshold'] = row.get('tau', 0.0)
+        
+        # wFmax - Weighted Maximum F-measure (if IA file was provided)
+        if 'wf' in best_scores and not best_scores['wf'].empty:
+            row = best_scores['wf'].iloc[0]
+            cafa_metrics['wfmax'] = row.get('wf', 0.0)
+            cafa_metrics['wfmax_precision'] = row.get('wpr', 0.0)
+            cafa_metrics['wfmax_recall'] = row.get('wrc', 0.0)
+            cafa_metrics['wfmax_threshold'] = row.get('tau', 0.0)
+        
+        # Micro F-measure
+        if 'f_micro' in best_scores and not best_scores['f_micro'].empty:
+            row = best_scores['f_micro'].iloc[0]
+            cafa_metrics['f_micro'] = row.get('f_micro', 0.0)
+            cafa_metrics['f_micro_precision'] = row.get('pr_micro', 0.0)
+            cafa_metrics['f_micro_recall'] = row.get('rc_micro', 0.0)
+        
+        print(f"\nCAFA Best Metrics:")
+        print(f"  Fmax: {cafa_metrics.get('fmax', 0):.4f} (P={cafa_metrics.get('fmax_precision', 0):.3f}, R={cafa_metrics.get('fmax_recall', 0):.3f}, τ={cafa_metrics.get('fmax_threshold', 0):.2f})")
+        if 'smin' in cafa_metrics:
+            print(f"  Smin: {cafa_metrics.get('smin', 0):.4f} (RU={cafa_metrics.get('smin_ru', 0):.3f}, MI={cafa_metrics.get('smin_mi', 0):.3f}, τ={cafa_metrics.get('smin_threshold', 0):.2f})")
+        if 'wfmax' in cafa_metrics:
+            print(f"  wFmax: {cafa_metrics.get('wfmax', 0):.4f} (wP={cafa_metrics.get('wfmax_precision', 0):.3f}, wR={cafa_metrics.get('wfmax_recall', 0):.3f})")
+        if 'f_micro' in cafa_metrics:
+            print(f"  F-micro: {cafa_metrics.get('f_micro', 0):.4f}")
+        
+        return cafa_metrics
+        
+    except Exception as e:
+        print(f"Error running CAFA evaluation: {e}")
+        import traceback
+        traceback.print_exc()
+        return {}
+
+# ============================================================================
+# Visualization
 # ============================================================================
 
 def visualize_results(history: List[Dict], config: Config):
     """Create training visualization"""
     df = pd.DataFrame(history)
     
-    mode = "Graph" if config.USE_GRAPH else "Baseline"
+    mode = "ProtGO" if config.USE_GRAPH else "Baseline"
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle(f'CAFA3 MLP Training - {config.GO_ASPECT.upper()} ({mode})', fontsize=16)
+    fig.suptitle(f'CAFA3 Training - {config.GO_ASPECT.upper()} ({mode})', fontsize=16)
     
-    # Loss curves
     axes[0, 0].plot(df['epoch'], df['train_loss'], label='Train', linewidth=2)
     axes[0, 0].plot(df['epoch'], df['val_loss'], label='Val', linewidth=2)
     axes[0, 0].set_xlabel('Epoch')
@@ -569,14 +631,12 @@ def visualize_results(history: List[Dict], config: Config):
     axes[0, 0].legend()
     axes[0, 0].grid(True, alpha=0.3)
     
-    # F1 score
     axes[0, 1].plot(df['epoch'], df['f1'], linewidth=2, color='green')
     axes[0, 1].set_xlabel('Epoch')
     axes[0, 1].set_ylabel('F1 Score')
     axes[0, 1].set_title('Validation F1')
     axes[0, 1].grid(True, alpha=0.3)
     
-    # All metrics
     axes[1, 0].plot(df['epoch'], df['precision'], label='Precision', linewidth=2)
     axes[1, 0].plot(df['epoch'], df['recall'], label='Recall', linewidth=2)
     axes[1, 0].plot(df['epoch'], df['f1'], label='F1', linewidth=2)
@@ -586,7 +646,6 @@ def visualize_results(history: List[Dict], config: Config):
     axes[1, 0].legend()
     axes[1, 0].grid(True, alpha=0.3)
     
-    # Learning rate
     axes[1, 1].plot(df['epoch'], df['lr'], linewidth=2, color='orange')
     axes[1, 1].set_xlabel('Epoch')
     axes[1, 1].set_ylabel('Learning Rate')
@@ -595,21 +654,21 @@ def visualize_results(history: List[Dict], config: Config):
     axes[1, 1].grid(True, alpha=0.3)
     
     plt.tight_layout()
-    suffix = "_graph" if config.USE_GRAPH else "_baseline"
+    suffix = "_protgo" if config.USE_GRAPH else "_baseline"
     save_path = config.RESULTS_DIR / f'training_curves_{config.GO_ASPECT}{suffix}.png'
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"📈 Plots saved to {save_path}")
+    print(f"Plots saved to {save_path}")
 
 # ============================================================================
-# Main - UPDATED
+# Main
 # ============================================================================
 
 def main(go_aspect: str = "mf", debug_mode: bool = False, use_graph: bool = False):
     """Main training pipeline"""
     
-    mode = "Graph Propagation" if use_graph else "Baseline MLP"
-    print(f"🚀 CAFA3 ESM2 Training - {mode}")
+    mode = "ProtGO (with Graph Convolution)" if use_graph else "Baseline MLP"
+    print(f"CAFA3 ESM2 Training - {mode}")
     print("=" * 60)
     
     config = Config(go_aspect=go_aspect, debug_mode=debug_mode, use_graph=use_graph)
@@ -621,14 +680,14 @@ def main(go_aspect: str = "mf", debug_mode: bool = False, use_graph: bool = Fals
      test_proteins, test_labels, 
      go_terms) = data_loader.prepare_data()
     
-    # Build adjacency matrix if using graph
+    # Build adjacency matrix (only if using graph)
     adjacency_matrix = None
     if use_graph:
         go_parser = GODagParser(config.GO_OBO_PATH)
         go_parser.parse()
-        adjacency_matrix = go_parser.build_adjacency_matrix(go_terms, normalize=True)
+        adjacency_matrix = go_parser.build_adjacency_matrix(go_terms)
     
-    # Create datasets (pre-loads embeddings)
+    # Create datasets
     train_dataset = CAFA3MLPDataset(train_proteins, train_labels, config.ESM_EMBEDDINGS_DIR)
     val_dataset = CAFA3MLPDataset(val_proteins, val_labels, config.ESM_EMBEDDINGS_DIR)
     test_dataset = CAFA3MLPDataset(test_proteins, test_labels, config.ESM_EMBEDDINGS_DIR)
@@ -639,38 +698,53 @@ def main(go_aspect: str = "mf", debug_mode: bool = False, use_graph: bool = Fals
     test_loader = DataLoader(test_dataset, batch_size=config.BATCH_SIZE, shuffle=False)
     
     # Initialize model
-    model = ESM2MLPClassifier(config, num_go_terms=len(go_terms), adjacency_matrix=adjacency_matrix)
+    model = ESM2Classifier(config, num_go_terms=len(go_terms), adjacency_matrix=adjacency_matrix)
     
     total_params = sum(p.numel() for p in model.parameters())
-    print(f"\n📊 Model: {total_params:,} parameters")
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"\nModel Parameters: {total_params:,} total, {trainable_params:,} trainable")
     
     # Train
     trainer = Trainer(model, config)
-    print("\n🏋️ Starting training...")
+    print("\nStarting training...")
     history = trainer.train(train_loader, val_loader)
     
-    # Save results
-    suffix = "_graph" if use_graph else "_baseline"
+    # Save training history
+    suffix = "_protgo" if use_graph else "_baseline"
     pd.DataFrame(history).to_csv(
         config.RESULTS_DIR / f'training_history_{go_aspect}{suffix}.csv', index=False
     )
     
     visualize_results(history, config)
     
-    # Test
-    print("\n📊 Final test evaluation...")
-    test_loss, test_metrics = trainer.evaluate(test_loader)
+    # Test evaluation with both simple and CAFA metrics
+    print("\nFinal test evaluation...")
+    test_loss, test_metrics, test_preds = trainer.evaluate(test_loader)
     print(f"  Test Loss: {test_loss:.4f}")
     print(f"  Test Metrics: P={test_metrics['precision']:.3f}, "
           f"R={test_metrics['recall']:.3f}, F1={test_metrics['f1']:.3f}, "
           f"AUPRC={test_metrics['auprc']:.3f}")
     
+    # Run CAFA evaluation
+    cafa_metrics = run_cafa_evaluation(
+        test_proteins, 
+        test_labels, 
+        test_preds, 
+        go_terms, 
+        config, 
+        split_name="test"
+    )
+    
+    # Combine all metrics
+    all_test_metrics = {**test_metrics, **cafa_metrics}
+    
     # Save final results
     results = {
         'go_aspect': go_aspect,
         'num_go_terms': len(go_terms),
+        'method': 'protgo' if use_graph else 'baseline',
         'use_graph': use_graph,
-        'test_metrics': test_metrics,
+        'test_metrics': all_test_metrics,
         'best_val_f1': max([h['f1'] for h in history]),
         'num_epochs': len(history)
     }
@@ -678,18 +752,22 @@ def main(go_aspect: str = "mf", debug_mode: bool = False, use_graph: bool = Fals
     with open(config.RESULTS_DIR / f'final_results_{go_aspect}{suffix}.json', 'w') as f:
         json.dump(results, f, indent=2)
     
-    print(f"\n✅ Complete! Results: {config.RESULTS_DIR}")
+    print(f"\nComplete! Results saved to: {config.RESULTS_DIR}")
+    print(f"CAFA evaluation files saved to: {config.CAFA_DIR}")
     
-    return model, history, test_metrics
+    return model, history, all_test_metrics
 
 
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--aspect", type=str, default="mf", choices=["mf", "bp", "cc"])
-    parser.add_argument("--debug", action="store_true", help="Debug mode with small data")
-    parser.add_argument("--use_graph", action="store_true", help="Enable graph propagation")
+    parser = argparse.ArgumentParser(description='CAFA3 ESM2 Training with Optional Graph Convolution')
+    parser.add_argument("--aspect", type=str, default="mf", choices=["mf", "bp", "cc"],
+                       help="GO aspect to train on")
+    parser.add_argument("--debug", action="store_true",
+                       help="Debug mode with small data")
+    parser.add_argument("--use_graph", action="store_true", 
+                       help="Enable ProtGO graph convolution layer")
     args = parser.parse_args()
     
     main(go_aspect=args.aspect, debug_mode=args.debug, use_graph=args.use_graph)

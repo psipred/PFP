@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-ESM2 Fine-tuning for CAFA3 GO Prediction
-Simplified implementation for CAFA3 dataset with binary GO annotations
+ESM2 Fine-tuning for CAFA3 GO Prediction with F-max evaluation
 """
 
 import os
@@ -21,8 +20,8 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, EsmModel
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-import seaborn as sns
 from torch.cuda.amp import autocast, GradScaler
+from sklearn.metrics import average_precision_score
 
 # ============================================================================
 # Configuration
@@ -35,25 +34,28 @@ class Config:
     CAFA3_BASE = Path("/home/zijianzhou/Datasets/cafa3")
     
     # GO Aspects to use
-    GO_ASPECTS = ["mf", "bp", "cc"]  # molecular function, biological process, cellular component
+    GO_ASPECTS = ["mf", "bp", "cc"]
     
-
-
     # Model settings
     MODEL_NAME = "facebook/esm2_t33_650M_UR50D"
-    MAX_SEQ_LENGTH = 1022  # ESM2 max minus special tokens
+    MAX_SEQ_LENGTH = 1022
     
     # Training settings
     BATCH_SIZE = 128
     LEARNING_RATE = 1e-4
-
     NUM_EPOCHS = 20
     GRADIENT_ACCUMULATION_STEPS = 4
     
+    # Early stopping
+
+
+
+    MIN_EPOCHS = 10
+    
     # Memory/performance settings
-    USE_AMP = True  # Enable mixed precision
-    AMP_DTYPE = 'fp16'  # 'auto' | 'fp16' | 'bf16' | 'none'
-    ENABLE_GRADIENT_CHECKPOINTING = True  # Save activation memory
+    USE_AMP = True
+    AMP_DTYPE = 'fp16'
+    ENABLE_GRADIENT_CHECKPOINTING = True
     
     # LoRA settings
     LORA_RANK = 16
@@ -61,13 +63,13 @@ class Config:
     LORA_TARGET_MODULES = ["query", "value"]
     
     # Data settings
-    MIN_GO_FREQUENCY = 0  # Minimum frequency of positive samples for a GO term
-    MAX_GO_FREQUENCY = 1  # Maximum frequency (to filter out too common terms)
+    MIN_GO_FREQUENCY = 0
+    MAX_GO_FREQUENCY = 1
     
     # Debug settings
     DEBUG_MODE = False
     DEBUG_SAMPLES = 100
-    DEBUG_GO_TERMS = 50  # Number of GO terms to use in debug mode
+    DEBUG_GO_TERMS = 50
     
     # Output paths
     OUTPUT_DIR = Path("./cafa3_experiments")
@@ -75,13 +77,7 @@ class Config:
     RESULTS_DIR = OUTPUT_DIR / "results"
     
     def __init__(self, go_aspect: str = "mf", debug_mode: bool = False):
-        """
-        Initialize configuration
-        
-        Args:
-            go_aspect: Which GO aspect to train on ("mf", "bp", "cc", or "all")
-            debug_mode: Whether to run in debug mode
-        """
+        """Initialize configuration"""
         self.GO_ASPECT = go_aspect
         self.DEBUG_MODE = debug_mode
         
@@ -93,16 +89,123 @@ class Config:
         self.CHECKPOINT_DIR.mkdir(exist_ok=True, parents=True)
         self.RESULTS_DIR.mkdir(exist_ok=True, parents=True)
         
-        # Adjust settings for debug mode
         if debug_mode:
             self.NUM_EPOCHS = 2
             print(f"🔧 Debug mode enabled - using reduced settings")
-            print(f"   - Samples: {self.DEBUG_SAMPLES}")
-            print(f"   - GO terms: {self.DEBUG_GO_TERMS}")
-            print(f"   - Epochs: {self.NUM_EPOCHS}")
 
 # ============================================================================
-# CAFA3 Data Loader
+# Early Stopping
+# ============================================================================
+
+class EarlyStop:
+    """Early stopping utility"""
+    
+    def __init__(self, patience=5, min_epochs=10):
+        self.patience = patience
+        self.min_epochs = min_epochs
+        self.counter = 0
+        self.best_score = None
+        self.stop_flag = False
+        self.epoch = 0
+        
+    def __call__(self, loss, score, model):
+        """
+        Args:
+            loss: Current validation loss (not used but kept for compatibility)
+            score: Current validation score (e.g., F-max)
+            model: Model to save if best
+        """
+        self.epoch += 1
+        
+        # Don't stop before minimum epochs
+        if self.epoch < self.min_epochs:
+            self.best_score = score if self.best_score is None else max(self.best_score, score)
+            return
+        
+        if self.best_score is None:
+            self.best_score = score
+        elif score <= self.best_score:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.stop_flag = True
+        else:
+            self.best_score = score
+            self.counter = 0
+    
+    def stop(self):
+        return self.stop_flag
+
+# ============================================================================
+# Evaluation Metrics - F-max only
+# ============================================================================
+
+def calculate_fmax(predictions, labels, thresholds=None):
+    """
+    Calculate F-max score (CAFA metric)
+    
+    Args:
+        predictions: Tensor of predictions (after sigmoid)
+        labels: Tensor of true labels
+        thresholds: Optional specific thresholds to evaluate
+    
+    Returns:
+        tuple: (fmax, best_threshold, precision, recall)
+    """
+    if thresholds is None:
+        thresholds = torch.linspace(0.01, 0.99, 99)
+    
+    predictions = predictions.cpu()
+    labels = labels.cpu()
+    
+    fmax = 0.0
+    best_threshold = 0.0
+    best_precision = 0.0
+    best_recall = 0.0
+    
+    for threshold in thresholds:
+        pred_binary = (predictions >= threshold).float()
+        
+        # Calculate true positives, false positives, false negatives
+        tp = (pred_binary * labels).sum().item()
+        fp = (pred_binary * (1 - labels)).sum().item()
+        fn = ((1 - pred_binary) * labels).sum().item()
+        
+        # Calculate precision and recall
+        precision = tp / (tp + fp + 1e-10)
+        recall = tp / (tp + fn + 1e-10)
+        
+        # Calculate F1
+        if precision + recall > 0:
+            f1 = 2 * precision * recall / (precision + recall)
+            if f1 > fmax:
+                fmax = f1
+                best_threshold = threshold.item()
+                best_precision = precision
+                best_recall = recall
+    
+    return fmax, best_threshold, best_precision, best_recall
+
+def calculate_auprc(y_true, y_pred):
+    """
+    Calculate average AUPRC across all GO terms
+    
+    Args:
+        y_true: True labels (numpy array)
+        y_pred: Predictions (numpy array, after sigmoid)
+    
+    Returns:
+        Average AUPRC score
+    """
+    auprcs = []
+    for i in range(y_true.shape[1]):
+        if y_true[:, i].sum() > 0:  # Only if there are positive samples
+            auprc = average_precision_score(y_true[:, i], y_pred[:, i])
+            auprcs.append(auprc)
+    
+    return np.mean(auprcs) if auprcs else 0.0
+
+# ============================================================================
+# Data Loading
 # ============================================================================
 
 class CAFA3DataLoader:
@@ -116,20 +219,13 @@ class CAFA3DataLoader:
         self.test_data = None
         
     def load_aspect_data(self, aspect: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """
-        Load train/val/test data for a specific GO aspect
-        
-        Args:
-            aspect: One of "mf", "bp", "cc"
-        """
+        """Load train/val/test data for a specific GO aspect"""
         print(f"📂 Loading {aspect.upper()} aspect data...")
         
-        # File paths
         train_path = self.config.CAFA3_BASE / f"{aspect}-training.csv"
         val_path = self.config.CAFA3_BASE / f"{aspect}-validation.csv"
         test_path = self.config.CAFA3_BASE / f"{aspect}-test.csv"
         
-        # Load CSVs
         train_df = pd.read_csv(train_path)
         val_df = pd.read_csv(val_path)
         test_df = pd.read_csv(test_path)
@@ -141,12 +237,7 @@ class CAFA3DataLoader:
         return train_df, val_df, test_df
     
     def prepare_data(self) -> Tuple:
-        """
-        Prepare data for training
-        
-        Returns:
-            Tuple of (sequences, labels) for train/val/test
-        """
+        """Prepare data for training"""
         
         if self.config.GO_ASPECT == "all":
             # Combine all three aspects
@@ -159,7 +250,6 @@ class CAFA3DataLoader:
                 all_val.append(val_df)
                 all_test.append(test_df)
             
-            # Merge on proteins and sequences columns
             self.train_data = all_train[0][['proteins', 'sequences']].copy()
             self.val_data = all_val[0][['proteins', 'sequences']].copy()
             self.test_data = all_test[0][['proteins', 'sequences']].copy()
@@ -173,7 +263,6 @@ class CAFA3DataLoader:
                         self.val_data = pd.concat([self.val_data, all_val[i][go_cols]], axis=1)
                         self.test_data = pd.concat([self.test_data, all_test[i][go_cols]], axis=1)
                     else:
-                        # Add non-overlapping GO terms
                         new_go_cols = [col for col in go_cols if col not in self.train_data.columns]
                         if new_go_cols:
                             self.train_data = pd.concat([self.train_data, df[new_go_cols]], axis=1)
@@ -187,10 +276,6 @@ class CAFA3DataLoader:
         self.go_columns = [col for col in self.train_data.columns if col.startswith('GO:')]
         print(f"📊 Found {len(self.go_columns)} GO terms")
         
-        # Do not filter by raw sequence length; rely on tokenizer truncation
-        # Sequences longer than MAX_SEQ_LENGTH will be truncated during tokenization
-        print(f"✂️  Not filtering by length; sequences > {self.config.MAX_SEQ_LENGTH} will be truncated at tokenization")
-        
         # Filter GO terms by frequency
         self.filter_go_terms_by_frequency()
         
@@ -201,7 +286,6 @@ class CAFA3DataLoader:
             self.val_data = self.val_data.head(min(self.config.DEBUG_SAMPLES // 5, len(self.val_data)))
             self.test_data = self.test_data.head(min(self.config.DEBUG_SAMPLES // 5, len(self.test_data)))
             
-            # Use only first N GO terms for debugging
             if len(self.go_columns) > self.config.DEBUG_GO_TERMS:
                 self.go_columns = self.go_columns[:self.config.DEBUG_GO_TERMS]
         
@@ -226,15 +310,12 @@ class CAFA3DataLoader:
         """Filter GO terms that are too rare or too common"""
         go_frequencies = self.train_data[self.go_columns].mean()
         
-        # Find GO terms within frequency range
         valid_go_terms = go_frequencies[
             (go_frequencies >= self.config.MIN_GO_FREQUENCY) & 
             (go_frequencies <= self.config.MAX_GO_FREQUENCY)
         ].index.tolist()
         
         print(f"📊 Filtered GO terms: {len(self.go_columns)} -> {len(valid_go_terms)}")
-        print(f"   (keeping terms with {self.config.MIN_GO_FREQUENCY:.1%} - {self.config.MAX_GO_FREQUENCY:.1%} frequency)")
-        
         self.go_columns = valid_go_terms
     
     def print_data_statistics(self, train_labels, val_labels, test_labels):
@@ -251,8 +332,6 @@ class CAFA3DataLoader:
         print(f"\nLabel Statistics (Train):")
         print(f"  Avg GO terms per protein: {train_labels.sum(axis=1).mean():.2f}")
         print(f"  Label density: {train_labels.mean():.4f}")
-        print(f"  Min GO terms per protein: {train_labels.sum(axis=1).min():.0f}")
-        print(f"  Max GO terms per protein: {train_labels.sum(axis=1).max():.0f}")
         print("="*60)
 
 # ============================================================================
@@ -272,16 +351,10 @@ class CAFA3Dataset(Dataset):
         return len(self.sequences)
     
     def __getitem__(self, idx):
-        # Return raw sequence and label; tokenization happens in collate_fn
-        # print(self.labels[idx])
-        # print(self.sequences[idx])
-
-        # exit()
         return {
             'sequence': self.sequences[idx],
             'labels': self.labels[idx]
         }
-
 
 def create_collate_fn(tokenizer, max_length: int):
     """Dynamic padding collate function to reduce memory usage."""
@@ -290,7 +363,7 @@ def create_collate_fn(tokenizer, max_length: int):
         labels = torch.stack([b['labels'] for b in batch], dim=0)
         encoding = tokenizer(
             sequences,
-            padding=True,            # pad to longest in batch
+            padding=True,
             truncation=True,
             max_length=max_length,
             return_tensors='pt'
@@ -303,7 +376,7 @@ def create_collate_fn(tokenizer, max_length: int):
     return collate
 
 # ============================================================================
-# Model Implementations
+# Model Implementation
 # ============================================================================
 
 class LoRALayer(nn.Module):
@@ -326,7 +399,6 @@ class LoRALayer(nn.Module):
         lora_out = x @ self.lora_A @ self.lora_B * self.scaling
         return original_out + lora_out
 
-
 class ESM2ForCAFA3(nn.Module):
     """ESM2 model for CAFA3 GO prediction"""
     
@@ -340,7 +412,7 @@ class ESM2ForCAFA3(nn.Module):
         self.esm = EsmModel.from_pretrained(config.MODEL_NAME)
         self.hidden_size = self.esm.config.hidden_size
         
-        # Enable gradient checkpointing to save memory (if available)
+        # Enable gradient checkpointing to save memory
         if getattr(config, 'ENABLE_GRADIENT_CHECKPOINTING', False):
             try:
                 if hasattr(self.esm, 'gradient_checkpointing_enable'):
@@ -360,10 +432,23 @@ class ESM2ForCAFA3(nn.Module):
         # Apply LoRA if requested
         if use_lora:
             self._apply_lora()
-        
-        # GO prediction head (kept simple for maintainability)
-        self.dropout = nn.Dropout(0.3)
-        self.go_classifier = nn.Linear(self.hidden_size, num_go_terms)
+            # Simple linear classifier for LoRA
+            self.dropout = nn.Dropout(0.3)
+            self.go_classifier = nn.Linear(self.hidden_size, num_go_terms)
+            print("📊 Using direct linear classifier (LoRA mode)")
+        else:
+            # 3-layer MLP for non-LoRA
+            self.dropout = nn.Dropout(0.3)
+            self.go_classifier = nn.Sequential(
+                nn.Linear(self.hidden_size, self.hidden_size // 2),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(self.hidden_size // 2, self.hidden_size // 4),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(self.hidden_size // 4, num_go_terms)
+            )
+            print("📊 Using 3-layer MLP classifier (non-LoRA mode)")
         
     def _apply_lora(self):
         """Apply LoRA to attention layers"""
@@ -441,6 +526,12 @@ class Trainer:
         # Loss function
         self.criterion = nn.BCEWithLogitsLoss()
         
+        # Early stopping
+        self.early_stop = EarlyStop(
+            patience=getattr(config, 'PATIENCE', 5),
+            min_epochs=getattr(config, 'MIN_EPOCHS', 10)
+        )
+        
         # Metrics tracking
         self.history = []
         
@@ -457,11 +548,8 @@ class Trainer:
                 
                 with autocast(enabled=self.use_amp, dtype=self.amp_dtype):
                     logits = self.model(input_ids, attention_mask)
-                    # Early shape check to surface issues clearly
                     if logits.size(-1) != labels.size(-1):
-                        raise ValueError(
-                            f"Logits/labels dim mismatch: logits {tuple(logits.shape)} vs labels {tuple(labels.shape)}"
-                        )
+                        raise ValueError(f"Logits/labels dim mismatch")
                     loss = self.criterion(logits, labels)
                     loss = loss / self.config.GRADIENT_ACCUMULATION_STEPS
 
@@ -487,7 +575,7 @@ class Trainer:
         return total_loss / len(dataloader)
     
     def evaluate(self, dataloader):
-        """Evaluate model"""
+        """Evaluate model using F-max metric only"""
         self.model.eval()
         total_loss = 0
         all_preds = []
@@ -504,51 +592,35 @@ class Trainer:
                     loss = self.criterion(logits, labels)
                 
                 total_loss += loss.item()
-                all_preds.append(torch.sigmoid(logits).cpu().numpy())
-                all_labels.append(labels.cpu().numpy())
+                all_preds.append(torch.sigmoid(logits).cpu())
+                all_labels.append(labels.cpu())
         
-        # Calculate metrics
-        all_preds = np.vstack(all_preds)
-        all_labels = np.vstack(all_labels)
+        # Combine all predictions and labels
+        all_preds = torch.cat(all_preds)
+        all_labels = torch.cat(all_labels)
         
-        metrics = self.calculate_metrics(all_labels, all_preds)
+        # Calculate F-max (primary CAFA metric)
+        fmax, best_threshold, precision, recall = calculate_fmax(all_preds, all_labels)
+        
+        # Calculate AUPRC as secondary metric
+        auprc = calculate_auprc(all_labels.numpy(), all_preds.numpy())
+        
         avg_loss = total_loss / len(dataloader)
         
-        return avg_loss, metrics
-    
-    def calculate_metrics(self, y_true, y_pred, threshold=0.5):
-        """Calculate evaluation metrics"""
-        from sklearn.metrics import average_precision_score
-        
-        y_pred_binary = (y_pred > threshold).astype(int)
-        
-        # Calculate per-sample metrics
-        tp = ((y_pred_binary == 1) & (y_true == 1)).sum(axis=1)
-        fp = ((y_pred_binary == 1) & (y_true == 0)).sum(axis=1)
-        fn = ((y_pred_binary == 0) & (y_true == 1)).sum(axis=1)
-        
-        precision = tp / (tp + fp + 1e-10)
-        recall = tp / (tp + fn + 1e-10)
-        f1 = 2 * precision * recall / (precision + recall + 1e-10)
-        
-        # Calculate AUPRC for each GO term
-        auprcs = []
-        for i in range(y_true.shape[1]):
-            if y_true[:, i].sum() > 0:  # Only if there are positive samples
-                auprc = average_precision_score(y_true[:, i], y_pred[:, i])
-                auprcs.append(auprc)
-        
         return {
-            'precision': precision.mean(),
-            'recall': recall.mean(),
-            'f1': f1.mean(),
-            'auprc': np.mean(auprcs) if auprcs else 0.0
+            'loss': avg_loss,
+            'fmax': fmax,
+            'best_threshold': best_threshold,
+            'precision': precision,
+            'recall': recall,
+            'auprc': auprc
         }
     
     def train(self, train_loader, val_loader, num_epochs=None):
-        """Full training loop"""
+        """Full training loop with early stopping based on F-max"""
         num_epochs = num_epochs or self.config.NUM_EPOCHS
-        best_val_f1 = 0
+        best_val_fmax = 0
+        best_model_state = None
         
         for epoch in range(num_epochs):
             print(f"\n📍 Epoch {epoch + 1}/{num_epochs}")
@@ -557,27 +629,40 @@ class Trainer:
             train_loss = self.train_epoch(train_loader)
             
             # Validate
-            val_loss, val_metrics = self.evaluate(val_loader)
+            val_metrics = self.evaluate(val_loader)
             
             # Log results
             print(f"  Train Loss: {train_loss:.4f}")
-            print(f"  Val Loss: {val_loss:.4f}")
-            print(f"  Val Metrics: P={val_metrics['precision']:.3f}, "
-                  f"R={val_metrics['recall']:.3f}, F1={val_metrics['f1']:.3f}, "
-                  f"AUPRC={val_metrics['auprc']:.3f}")
+            print(f"  Val Loss: {val_metrics['loss']:.4f}")
+            print(f"  Val F-max: {val_metrics['fmax']:.4f} (threshold={val_metrics['best_threshold']:.3f})")
+            print(f"  Val P/R: {val_metrics['precision']:.3f} / {val_metrics['recall']:.3f}")
+            print(f"  Val AUPRC: {val_metrics['auprc']:.3f}")
             
             self.history.append({
                 'epoch': epoch + 1,
                 'train_loss': train_loss,
-                'val_loss': val_loss,
                 **val_metrics
             })
             
-            # Save best model
-            if val_metrics['f1'] > best_val_f1:
-                best_val_f1 = val_metrics['f1']
+            # Early stopping based on F-max
+            self.early_stop(-val_metrics['loss'], val_metrics['fmax'], self.model)
+            
+            # Save best model based on F-max
+            if val_metrics['fmax'] > best_val_fmax:
+                best_val_fmax = val_metrics['fmax']
+                best_model_state = self.model.state_dict().copy()
                 self.save_checkpoint(epoch, val_metrics)
-                print(f"  ✅ New best model saved! (F1: {best_val_f1:.3f})")
+                print(f"  ✅ New best model saved! (F-max: {best_val_fmax:.4f})")
+            
+            # Check early stopping
+            if self.early_stop.stop():
+                print(f"  ⚠️ Early stopping triggered at epoch {epoch + 1}")
+                break
+        
+        # Restore best model
+        if best_model_state is not None:
+            self.model.load_state_dict(best_model_state)
+            print(f"\n✅ Restored best model with F-max: {best_val_fmax:.4f}")
         
         return self.history
     
@@ -590,73 +675,63 @@ class Trainer:
             'metrics': metrics,
             'config': vars(self.config)
         }
-        path = self.config.CHECKPOINT_DIR / f"best_model_{self.config.GO_ASPECT}.pt"
+        path = self.config.CHECKPOINT_DIR / f"best_model_{self.config.GO_ASPECT}_fmax{metrics['fmax']:.4f}.pt"
         torch.save(checkpoint, path)
 
 # ============================================================================
-# Main Pipeline
+# Visualization
 # ============================================================================
 
 def visualize_results(history: List[Dict], config: Config):
     """Create training visualization"""
     df = pd.DataFrame(history)
     
-    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
     fig.suptitle(f'CAFA3 Training Results - {config.GO_ASPECT.upper()} Aspect', fontsize=16)
     
     # Loss plot
     axes[0, 0].plot(df['epoch'], df['train_loss'], label='Train', linewidth=2)
-    axes[0, 0].plot(df['epoch'], df['val_loss'], label='Val', linewidth=2)
+    axes[0, 0].plot(df['epoch'], df['loss'], label='Val', linewidth=2)
     axes[0, 0].set_xlabel('Epoch')
     axes[0, 0].set_ylabel('Loss')
     axes[0, 0].set_title('Training Loss')
     axes[0, 0].legend()
     axes[0, 0].grid(True, alpha=0.3)
     
-    # F1 plot
-    axes[0, 1].plot(df['epoch'], df['f1'], linewidth=2, color='green')
+    # F-max plot (primary metric)
+    axes[0, 1].plot(df['epoch'], df['fmax'], linewidth=2, color='green')
     axes[0, 1].set_xlabel('Epoch')
-    axes[0, 1].set_ylabel('F1 Score')
-    axes[0, 1].set_title('Validation F1 Score')
+    axes[0, 1].set_ylabel('F-max Score')
+    axes[0, 1].set_title('Validation F-max Score')
     axes[0, 1].grid(True, alpha=0.3)
+    axes[0, 1].axhline(y=df['fmax'].max(), color='r', linestyle='--', alpha=0.5, 
+                       label=f'Best: {df["fmax"].max():.4f}')
+    axes[0, 1].legend()
     
     # AUPRC plot
-    axes[0, 2].plot(df['epoch'], df['auprc'], linewidth=2, color='purple')
-    axes[0, 2].set_xlabel('Epoch')
-    axes[0, 2].set_ylabel('AUPRC')
-    axes[0, 2].set_title('Validation AUPRC')
-    axes[0, 2].grid(True, alpha=0.3)
-    
-    # Precision plot
-    axes[1, 0].plot(df['epoch'], df['precision'], linewidth=2, color='blue')
+    axes[1, 0].plot(df['epoch'], df['auprc'], linewidth=2, color='purple')
     axes[1, 0].set_xlabel('Epoch')
-    axes[1, 0].set_ylabel('Precision')
-    axes[1, 0].set_title('Validation Precision')
+    axes[1, 0].set_ylabel('AUPRC')
+    axes[1, 0].set_title('Validation AUPRC')
     axes[1, 0].grid(True, alpha=0.3)
     
-    # Recall plot
-    axes[1, 1].plot(df['epoch'], df['recall'], linewidth=2, color='red')
+    # Precision and Recall
+    axes[1, 1].plot(df['epoch'], df['precision'], label='Precision', linewidth=2)
+    axes[1, 1].plot(df['epoch'], df['recall'], label='Recall', linewidth=2)
     axes[1, 1].set_xlabel('Epoch')
-    axes[1, 1].set_ylabel('Recall')
-    axes[1, 1].set_title('Validation Recall')
+    axes[1, 1].set_ylabel('Score')
+    axes[1, 1].set_title('Precision & Recall at Best Threshold')
+    axes[1, 1].legend()
     axes[1, 1].grid(True, alpha=0.3)
-    
-    # Combined metrics
-    axes[1, 2].plot(df['epoch'], df['precision'], label='Precision', linewidth=2)
-    axes[1, 2].plot(df['epoch'], df['recall'], label='Recall', linewidth=2)
-    axes[1, 2].plot(df['epoch'], df['f1'], label='F1', linewidth=2)
-    axes[1, 2].set_xlabel('Epoch')
-    axes[1, 2].set_ylabel('Score')
-    axes[1, 2].set_title('All Metrics')
-    axes[1, 2].legend()
-    axes[1, 2].grid(True, alpha=0.3)
     
     plt.tight_layout()
     save_path = config.RESULTS_DIR / f'training_curves_{config.GO_ASPECT}.png'
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.show()
     print(f"📈 Plots saved to {save_path}")
 
+# ============================================================================
+# Main Pipeline
+# ============================================================================
 
 def main(go_aspect: str = "mf", debug_mode: bool = False, use_lora: bool = True):
     """
@@ -732,13 +807,11 @@ def main(go_aspect: str = "mf", debug_mode: bool = False, use_lora: bool = True)
         collate_fn=collate_fn
     )
     
-    # Initialize model using actual dataset label width to avoid mismatches
+    # Initialize model
     num_go_terms = int(train_dataset.labels.shape[1])
-    # Sanity check all splits match
-    assert val_dataset.labels.shape[1] == num_go_terms, (
-        f"Val labels width {val_dataset.labels.shape[1]} != train {num_go_terms}")
-    assert test_dataset.labels.shape[1] == num_go_terms, (
-        f"Test labels width {test_dataset.labels.shape[1]} != train {num_go_terms}")
+    assert val_dataset.labels.shape[1] == num_go_terms, "Val labels width mismatch"
+    assert test_dataset.labels.shape[1] == num_go_terms, "Test labels width mismatch"
+    
     model = ESM2ForCAFA3(config, num_go_terms=num_go_terms, use_lora=use_lora)
     
     # Print model info
@@ -765,20 +838,21 @@ def main(go_aspect: str = "mf", debug_mode: bool = False, use_lora: bool = True)
     
     # Final evaluation on test set
     print("\n📊 Final evaluation on test set...")
-    test_loss, test_metrics = trainer.evaluate(test_loader)
-    print(f"  Test Loss: {test_loss:.4f}")
-    print(f"  Test Metrics: P={test_metrics['precision']:.3f}, "
-          f"R={test_metrics['recall']:.3f}, F1={test_metrics['f1']:.3f}, "
-          f"AUPRC={test_metrics['auprc']:.3f}")
+    test_metrics = trainer.evaluate(test_loader)
+    print(f"  Test Loss: {test_metrics['loss']:.4f}")
+    print(f"  Test F-max: {test_metrics['fmax']:.4f} (threshold={test_metrics['best_threshold']:.3f})")
+    print(f"  Test P/R: {test_metrics['precision']:.3f} / {test_metrics['recall']:.3f}")
+    print(f"  Test AUPRC: {test_metrics['auprc']:.3f}")
     
     # Save final results
+    best_val_fmax = max([h['fmax'] for h in history])
     final_results = {
         'go_aspect': go_aspect,
-        'test_loss': test_loss,
-        'test_metrics': test_metrics,
         'use_lora': use_lora,
         'trainable_params': trainable_params,
         'total_params': total_params,
+        'best_val_fmax': best_val_fmax,
+        'test_metrics': test_metrics,
         'training_history': history
     }
     
@@ -786,6 +860,8 @@ def main(go_aspect: str = "mf", debug_mode: bool = False, use_lora: bool = True)
         json.dump(final_results, f, indent=2, default=str)
     
     print(f"\n✅ Training complete! Results saved to: {config.RESULTS_DIR}")
+    print(f"   Best Validation F-max: {best_val_fmax:.4f}")
+    print(f"   Test F-max: {test_metrics['fmax']:.4f}")
     
     return model, history, test_metrics
 
@@ -796,11 +872,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train ESM2 on CAFA3 dataset")
     parser.add_argument("--aspect", type=str, default="mf", 
                         choices=["mf", "bp", "cc", "all"],
-                        help="GO aspect to train on (mf=molecular function, bp=biological process, cc=cellular component)")
+                        help="GO aspect to train on")
     parser.add_argument("--debug", action="store_true", 
                         help="Run in debug mode with small dataset")
-    parser.add_argument("--full", action="store_true", 
-                        help="Run with full dataset")
     parser.add_argument("--use-lora", action="store_true", default=True, 
                         help="Use LoRA fine-tuning")
     parser.add_argument("--no-lora", dest="use_lora", action="store_false", 
@@ -808,9 +882,9 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    if args.full:
-        print(f"🔥 Running with FULL CAFA3 dataset ({args.aspect.upper()} aspect)")
-        main(go_aspect=args.aspect, debug_mode=False, use_lora=args.use_lora)
-    else:
+    if args.debug:
         print(f"🐛 Running in DEBUG mode ({args.aspect.upper()} aspect)")
         main(go_aspect=args.aspect, debug_mode=True, use_lora=args.use_lora)
+    else:
+        print(f"🔥 Running with FULL CAFA3 dataset ({args.aspect.upper()} aspect)")
+        main(go_aspect=args.aspect, debug_mode=False, use_lora=args.use_lora)
