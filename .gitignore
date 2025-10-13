@@ -40,3 +40,8 @@ utils/go-basic.obo
 utils/*.pkl
 structure/experiment_pipeline/scripts/
 structure/experiment_pipeline/configs/
+
+
+ *.log
+**/checkpoint/
+**embedding_cache/
