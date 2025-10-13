@@ -4,12 +4,16 @@
   "similarity_threshold": 30,
   "num_go_terms": 798,
   "test_metrics": {
-    "fmax": 0.5913753116469622,
-    "threshold": 0.31686868686868686,
-    "precision": 0.5878295181695125,
-    "recall": 0.5949641413426814
+    "fmax": 0.5939162825585558,
+    "threshold": 0.37626262626262624,
+    "precision": 0.6150950390785435,
+    "recall": 0.5741474214657616,
+    "micro_auprc": 0.5148001305633844,
+    "macro_auprc": 0.2980957999643815
   },
-  "best_val_fmax": 0.6002854926431705,
+  "best_val_fmax": 0.6095036261200749,
+  "best_epoch": 36,
+  "total_epochs": 46,
   "train_size": 13242,
   "val_size": 1643,
   "test_size": 1664

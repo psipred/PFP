@@ -44,7 +44,7 @@ def save_ground_truth_cafa_format(labels, protein_ids, go_terms, output_file):
                     f.write(f"{protein_id}\t{go_term}\n")
 
 
-def run_cafa_evaluator(obo_file, pred_file, truth_file, output_dir, ia_file=None, threads=4):
+def run_cafa_evaluator(obo_file, pred_file, truth_file, output_dir, ia_file=None):
     """
     Run CAFA evaluator using cafaeval package.
     
@@ -54,7 +54,6 @@ def run_cafa_evaluator(obo_file, pred_file, truth_file, output_dir, ia_file=None
         truth_file: path to ground truth file
         output_dir: path to output directory
         ia_file: optional information accretion file
-        threads: number of threads
     
     Returns:
         Path to results directory
@@ -68,26 +67,40 @@ def run_cafa_evaluator(obo_file, pred_file, truth_file, output_dir, ia_file=None
         print(f"  Predictions: {pred_file}")
         print(f"  Ground truth: {truth_file}")
         
-        # Run evaluation
-        kwargs = {
-            'out_dir': str(output_dir),
-            'threads': threads,
-            'norm': 'cafa',
-            'prop': 'max',
-            'th_step': 0.01
-        }
+        # Create output directory
+        output_dir = Path(output_dir)
+        output_dir.mkdir(exist_ok=True, parents=True)
         
-        if ia_file:
-            kwargs['ia'] = str(ia_file)
+        # Run evaluation with only supported parameters
+        # Check cafaeval signature - typically: cafa_eval(obo, pred, truth, ia=None, norm='cafa', prop='max')
+        try:
+            if ia_file:
+                results = cafa_eval(
+                    str(obo_file),
+                    str(pred_file),
+                    str(truth_file),
+                    ia=str(ia_file),
+                    norm='cafa',
+                    prop='max'
+                )
+            else:
+                results = cafa_eval(
+                    str(obo_file),
+                    str(pred_file),
+                    str(truth_file),
+                    norm='cafa',
+                    prop='max'
+                )
+        except TypeError as e:
+            # If parameters are wrong, try with minimal arguments
+            print(f"  Note: Using minimal cafa_eval parameters due to: {e}")
+            results = cafa_eval(
+                str(obo_file),
+                str(pred_file),
+                str(truth_file)
+            )
         
-        results = cafa_eval(
-            str(obo_file),
-            str(pred_file),
-            str(truth_file),
-            **kwargs
-        )
-        
-        # Write results
+        # Write results to the output directory
         write_results(*results, out_dir=str(output_dir))
         
         print(f"✓ CAFA evaluation complete. Results saved to: {output_dir}")
@@ -95,8 +108,15 @@ def run_cafa_evaluator(obo_file, pred_file, truth_file, output_dir, ia_file=None
         
     except ImportError:
         print("cafaeval package not found. Attempting to install...")
-        subprocess.run(['pip', 'install', 'cafaeval'], check=True)
-        print("Please re-run the evaluation.")
+        try:
+            subprocess.run(['pip', 'install', 'cafaeval'], check=True)
+            print("✓ cafaeval installed successfully. Please re-run the evaluation.")
+        except subprocess.CalledProcessError:
+            print("❌ Failed to install cafaeval. Skipping CAFA evaluation.")
+        return None
+    except Exception as e:
+        print(f"❌ Error during CAFA evaluation: {e}")
+        print("Skipping CAFA evaluation and continuing with standard metrics.")
         return None
 
 
@@ -170,8 +190,7 @@ def evaluate_with_cafa(model, loader, device, protein_ids, go_terms,
         obo_file=obo_file,
         pred_file=str(pred_dir),
         truth_file=str(truth_file),
-        output_dir=str(cafa_results_dir),
-        threads=4
+        output_dir=str(cafa_results_dir)
     )
     
     if result_path:
@@ -221,6 +240,9 @@ def evaluate_with_cafa(model, loader, device, protein_ids, go_terms,
                 print(f"  Weighted Fmax: {metrics['cafa_wfmax']:.4f}")
             if metrics.get('cafa_smin'):
                 print(f"  Smin: {metrics['cafa_smin']:.4f}")
+            
+            # Cleanup temp directory
+            shutil.rmtree(temp_dir, ignore_errors=True)
             
             return metrics
     

@@ -20,7 +20,6 @@ from models.simple_function_model import SimpleFunctionModel
 from models.esm_model import ESMClassifier
 from utils.metrics import compute_fmax, compute_auprc
 from utils.cafa_evaluation import evaluate_with_cafa
-from utils.logger import ExperimentLogger
 
 
 class EarlyStopping:
@@ -187,58 +186,58 @@ def train_model(config, data_dict, model_type='text'):
     best_epoch = 0
     history = []
     
-    # print("\nStarting training...")
-    # for epoch in range(config.num_epochs):
-    #     train_loss = train_epoch(model, train_loader, optimizer, criterion, device, model_type)
-    #     val_loss, val_fmax, val_threshold, val_prec, val_recall, val_micro_auprc, val_macro_auprc = evaluate(
-    #         model, val_loader, criterion, device, model_type
-    #     )
+    print("\nStarting training...")
+    for epoch in range(config.num_epochs):
+        train_loss = train_epoch(model, train_loader, optimizer, criterion, device, model_type)
+        val_loss, val_fmax, val_threshold, val_prec, val_recall, val_micro_auprc, val_macro_auprc = evaluate(
+            model, val_loader, criterion, device, model_type
+        )
         
-    #     print(f"\nEpoch {epoch+1}/{config.num_epochs}")
-    #     print(f"  Train Loss: {train_loss:.4f}")
-    #     print(f"  Val Loss: {val_loss:.4f}, Fmax: {val_fmax:.3f} (t={val_threshold:.2f})")
-    #     print(f"  Precision: {val_prec:.3f}, Recall: {val_recall:.3f}")
-    #     print(f"  Micro-AUPRC: {val_micro_auprc:.3f}, Macro-AUPRC: {val_macro_auprc:.3f}")
+        print(f"\nEpoch {epoch+1}/{config.num_epochs}")
+        print(f"  Train Loss: {train_loss:.4f}")
+        print(f"  Val Loss: {val_loss:.4f}, Fmax: {val_fmax:.3f} (t={val_threshold:.2f})")
+        print(f"  Precision: {val_prec:.3f}, Recall: {val_recall:.3f}")
+        print(f"  Micro-AUPRC: {val_micro_auprc:.3f}, Macro-AUPRC: {val_macro_auprc:.3f}")
         
-    #     history.append({
-    #         'epoch': epoch + 1,
-    #         'train_loss': train_loss,
-    #         'val_loss': val_loss,
-    #         'fmax': val_fmax,
-    #         'threshold': val_threshold,
-    #         'precision': val_prec,
-    #         'recall': val_recall,
-    #         'micro_auprc': val_micro_auprc,
-    #         'macro_auprc': val_macro_auprc
-    #     })
+        history.append({
+            'epoch': epoch + 1,
+            'train_loss': train_loss,
+            'val_loss': val_loss,
+            'fmax': val_fmax,
+            'threshold': val_threshold,
+            'precision': val_prec,
+            'recall': val_recall,
+            'micro_auprc': val_micro_auprc,
+            'macro_auprc': val_macro_auprc
+        })
         
-    #     # Save best model
-    #     if val_fmax > best_val_fmax:
-    #         best_val_fmax = val_fmax
-    #         best_threshold = val_threshold
-    #         best_epoch = epoch + 1
-    #         torch.save(model.state_dict(), config.checkpoint_dir / f"best_{model_type}.pt")
-    #         print(f"  ✓ New best: {best_val_fmax:.3f}")
+        # Save best model
+        if val_fmax > best_val_fmax:
+            best_val_fmax = val_fmax
+            best_threshold = val_threshold
+            best_epoch = epoch + 1
+            torch.save(model.state_dict(), config.checkpoint_dir / f"best_{model_type}.pt")
+            print(f"  ✓ New best: {best_val_fmax:.3f}")
         
-    #     # Early stopping check
-    #     if early_stopping(val_fmax):
-    #         print(f"\nEarly stopping triggered at epoch {epoch+1}")
-    #         print(f"Best validation Fmax: {best_val_fmax:.3f} at epoch {best_epoch}")
-    #         break
+        # Early stopping check
+        if early_stopping(val_fmax):
+            print(f"\nEarly stopping triggered at epoch {epoch+1}")
+            print(f"Best validation Fmax: {best_val_fmax:.3f} at epoch {best_epoch}")
+            break
     
-    # # Test evaluation
-    # print("\n" + "="*70)
-    # print("TEST EVALUATION")
-    # print("="*70)
-    # model.load_state_dict(torch.load(config.checkpoint_dir / f"best_{model_type}.pt"))
-    # test_loss, test_fmax, test_threshold, test_prec, test_recall, test_micro_auprc, test_macro_auprc = evaluate(
-    #     model, test_loader, criterion, device, model_type
-    # )
+    # Test evaluation
+    print("\n" + "="*70)
+    print("TEST EVALUATION")
+    print("="*70)
+    model.load_state_dict(torch.load(config.checkpoint_dir / f"best_{model_type}.pt"))
+    test_loss, test_fmax, test_threshold, test_prec, test_recall, test_micro_auprc, test_macro_auprc = evaluate(
+        model, test_loader, criterion, device, model_type
+    )
     
-    # print(f"\n{model_type.upper()} Test Results:")
-    # print(f"  Fmax: {test_fmax:.4f} (threshold={test_threshold:.3f})")
-    # print(f"  Precision: {test_prec:.4f}, Recall: {test_recall:.4f}")
-    # print(f"  Micro-AUPRC: {test_micro_auprc:.4f}, Macro-AUPRC: {test_macro_auprc:.4f}")
+    print(f"\n{model_type.upper()} Test Results:")
+    print(f"  Fmax: {test_fmax:.4f} (threshold={test_threshold:.3f})")
+    print(f"  Precision: {test_prec:.4f}, Recall: {test_recall:.4f}")
+    print(f"  Micro-AUPRC: {test_micro_auprc:.4f}, Macro-AUPRC: {test_macro_auprc:.4f}")
     
     # CAFA evaluation
     from pathlib import Path
@@ -247,7 +246,6 @@ def train_model(config, data_dict, model_type='text'):
         print("\n" + "="*70)
         print("CAFA-STYLE EVALUATION")
         print("="*70)
-        print("skip for now")
         
         cafa_metrics = evaluate_with_cafa(
             model=model,
@@ -263,7 +261,7 @@ def train_model(config, data_dict, model_type='text'):
     else:
         print(f"\nWarning: OBO file not found at {obo_file}. Skipping CAFA evaluation.")
         cafa_metrics = {}
-    cafa_metrics = {}
+    
     # Save results
     results = {
         'model_type': model_type,
@@ -312,92 +310,86 @@ def main():
     # Setup config
     config = Config(similarity_threshold=args.threshold, aspect=args.aspect, debug_mode=args.debug)
     
-    # Setup logging
-    experiment_name = f"{args.aspect}_sim{args.threshold}_{args.model}"
-    log_dir = config.output_dir / f"sim_{args.threshold}" / args.aspect / "logs"
+    print("="*70)
+    print(f"Protein Function Prediction")
+    print(f"Aspect: {args.aspect}, Threshold: {args.threshold}%")
+    print(f"Model: {args.model}")
+    print("="*70)
     
-    with ExperimentLogger(log_dir, experiment_name) as log_file:
+    # Load data
+    data_dict = load_data(config)
+    
+    # Train models
+    results = {}
+    
+    if args.model in ['esm', 'both', 'all']:
+        print("\n" + "="*70)
+        print("ESM BASELINE")
         print("="*70)
-        print(f"Protein Function Prediction")
-        print(f"Aspect: {args.aspect}, Threshold: {args.threshold}%")
-        print(f"Model: {args.model}")
+        results['esm'] = train_model(config, data_dict, model_type='esm')
+    
+    if args.model in ['function', 'all']:
+        print("\n" + "="*70)
+        print("FUNCTION-ONLY MODEL")
+        print("="*70)
+        results['function'] = train_model(config, data_dict, model_type='function')
+    
+    if args.model in ['concat', 'all']:
+        print("\n" + "="*70)
+        print("CONCAT BASELINE MODEL")
+        print("="*70)
+        results['concat'] = train_model(config, data_dict, model_type='concat')
+    
+    if args.model in ['text', 'both', 'all']:
+        print("\n" + "="*70)
+        print("TEXT FUSION MODEL")
+        print("="*70)
+        results['text'] = train_model(config, data_dict, model_type='text')
+    
+    # Comparison
+    if len(results) > 1:
+        print("\n" + "="*70)
+        print("FINAL COMPARISON")
         print("="*70)
         
-        # Load data
-        data_dict = load_data(config)
+        for model_name, model_results in results.items():
+            metrics = model_results['test_metrics']
+            print(f"\n{model_name.upper()}:")
+            print(f"  Fmax: {metrics['fmax']:.4f}")
+            print(f"  Micro-AUPRC: {metrics['micro_auprc']:.4f}")
+            print(f"  Macro-AUPRC: {metrics['macro_auprc']:.4f}")
+            if 'cafa_fmax' in metrics:
+                print(f"  CAFA Fmax: {metrics['cafa_fmax']:.4f}")
         
-        # Train models
-        results = {}
-        
-        if args.model in ['esm', 'both', 'all']:
-            print("\n" + "="*70)
-            print("ESM BASELINE")
-            print("="*70)
-            results['esm'] = train_model(config, data_dict, model_type='esm')
-        
-        if args.model in ['function', 'all']:
-            print("\n" + "="*70)
-            print("FUNCTION-ONLY MODEL")
-            print("="*70)
-            results['function'] = train_model(config, data_dict, model_type='function')
-        
-        if args.model in ['concat', 'all']:
-            print("\n" + "="*70)
-            print("CONCAT BASELINE MODEL")
-            print("="*70)
-            results['concat'] = train_model(config, data_dict, model_type='concat')
-        
-        if args.model in ['text', 'both', 'all']:
-            print("\n" + "="*70)
-            print("TEXT FUSION MODEL")
-            print("="*70)
-            results['text'] = train_model(config, data_dict, model_type='text')
-        
-        # Comparison
-        if len(results) > 1:
-            print("\n" + "="*70)
-            print("FINAL COMPARISON")
-            print("="*70)
+        # Save comparison
+        if 'esm' in results:
+            esm_metrics = results['esm']['test_metrics']
+            comparison = {
+                'aspect': config.aspect,
+                'similarity_threshold': config.similarity_threshold,
+                'esm': esm_metrics
+            }
             
-            for model_name, model_results in results.items():
-                metrics = model_results['test_metrics']
-                print(f"\n{model_name.upper()}:")
-                print(f"  Fmax: {metrics['fmax']:.4f}")
-                print(f"  Micro-AUPRC: {metrics['micro_auprc']:.4f}")
-                print(f"  Macro-AUPRC: {metrics['macro_auprc']:.4f}")
-                if 'cafa_fmax' in metrics:
-                    print(f"  CAFA Fmax: {metrics['cafa_fmax']:.4f}")
+            for model_name in ['function', 'concat', 'text']:
+                if model_name in results:
+                    model_metrics = results[model_name]['test_metrics']
+                    comparison[model_name] = model_metrics
+                    comparison[f'{model_name}_improvement'] = {
+                        'fmax_absolute': float(model_metrics['fmax'] - esm_metrics['fmax']),
+                        'fmax_relative_percent': float((model_metrics['fmax']/esm_metrics['fmax'] - 1)*100),
+                        'micro_auprc_absolute': float(model_metrics['micro_auprc'] - esm_metrics['micro_auprc']),
+                        'macro_auprc_absolute': float(model_metrics['macro_auprc'] - esm_metrics['macro_auprc'])
+                    }
+                    print(f"\n{model_name.upper()} vs ESM:")
+                    print(f"  Fmax: {model_metrics['fmax'] - esm_metrics['fmax']:+.4f} "
+                          f"({(model_metrics['fmax']/esm_metrics['fmax'] - 1)*100:+.2f}%)")
+                    print(f"  Micro-AUPRC: {model_metrics['micro_auprc'] - esm_metrics['micro_auprc']:+.4f}")
             
-            # Save comparison
-            if 'esm' in results:
-                esm_metrics = results['esm']['test_metrics']
-                comparison = {
-                    'aspect': config.aspect,
-                    'similarity_threshold': config.similarity_threshold,
-                    'esm': esm_metrics
-                }
-                
-                for model_name in ['function', 'concat', 'text']:
-                    if model_name in results:
-                        model_metrics = results[model_name]['test_metrics']
-                        comparison[model_name] = model_metrics
-                        comparison[f'{model_name}_improvement'] = {
-                            'fmax_absolute': float(model_metrics['fmax'] - esm_metrics['fmax']),
-                            'fmax_relative_percent': float((model_metrics['fmax']/esm_metrics['fmax'] - 1)*100),
-                            'micro_auprc_absolute': float(model_metrics['micro_auprc'] - esm_metrics['micro_auprc']),
-                            'macro_auprc_absolute': float(model_metrics['macro_auprc'] - esm_metrics['macro_auprc'])
-                        }
-                        print(f"\n{model_name.upper()} vs ESM:")
-                        print(f"  Fmax: {model_metrics['fmax'] - esm_metrics['fmax']:+.4f} "
-                              f"({(model_metrics['fmax']/esm_metrics['fmax'] - 1)*100:+.2f}%)")
-                        print(f"  Micro-AUPRC: {model_metrics['micro_auprc'] - esm_metrics['micro_auprc']:+.4f}")
-                
-                with open(config.results_dir / "comparison.json", 'w') as f:
-                    json.dump(comparison, f, indent=2)
-        
-        print("\n✓ Training complete!")
-        print(f"Results saved to: {config.results_dir}")
-        print(f"Log file: {log_file}")
+            with open(config.results_dir / "comparison.json", 'w') as f:
+                json.dump(comparison, f, indent=2)
+    
+    print("\n✓ Training complete!")
+    print(f"Results saved to: {config.results_dir}")
 
 
 if __name__ == "__main__":
