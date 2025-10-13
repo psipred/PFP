@@ -43,5 +43,5 @@ structure/experiment_pipeline/configs/
 
 
  *.log
-**/checkpoint/
+**/checkpoints/
 **embedding_cache/
