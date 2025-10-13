@@ -6,7 +6,7 @@
 for aspect in BP MF CC; do
     for threshold in 30 50 70 95; do
         echo "Running: Aspect=$aspect, Threshold=$threshold"
-        python train.py --aspect $aspect --threshold $threshold --model esm 
+        python train.py --aspect $aspect --threshold $threshold --model function 
     done
 done
 

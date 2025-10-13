@@ -1,0 +1,16 @@
+{
+  "model_type": "function",
+  "aspect": "BP",
+  "similarity_threshold": 30,
+  "num_go_terms": 5730,
+  "test_metrics": {
+    "fmax": 0.3812511880653387,
+    "threshold": 0.18818181818181817,
+    "precision": 0.3660420139201615,
+    "recall": 0.39777904718532753
+  },
+  "best_val_fmax": 0.3874255172661694,
+  "train_size": 14290,
+  "val_size": 1787,
+  "test_size": 1785
+}

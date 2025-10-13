@@ -12,8 +12,10 @@ from tqdm import tqdm
 
 from config import Config
 from data.preprocessing import load_data
-from data.dataset import TextDataset, ESMDataset, text_collate_fn, esm_collate_fn
+from data.dataset import TextDataset, ESMDataset, FunctionDataset, text_collate_fn, esm_collate_fn, function_collate_fn
 from models.text_model import TextFusionModel
+from models.simple_function_model import SimpleFunctionModel
+
 from models.esm_model import ESMClassifier
 from utils.metrics import compute_fmax
 
@@ -75,15 +77,14 @@ def evaluate(model, loader, criterion, device, model_type='text'):
     
     return total_loss / len(loader), fmax, threshold, precision, recall
 
-
 def train_model(config, data_dict, model_type='text'):
     """
-    Train a model (text or esm).
+    Train a model (text, esm, or function).
     
     Args:
         config: Configuration object
         data_dict: Dictionary containing train/val/test data
-        model_type: 'text' or 'esm'
+        model_type: 'text', 'esm', or 'function'
     """
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"\nTraining {model_type.upper()} model on {device}")
@@ -106,6 +107,24 @@ def train_model(config, data_dict, model_type='text'):
             config.cache_dir
         )
         collate_fn = text_collate_fn
+    elif model_type == 'function':
+        # Function-only model uses same data as ESM
+        train_dataset = FunctionDataset(
+            data_dict['train'][0], 
+            data_dict['train'][1],
+            config.cache_dir
+        )
+        val_dataset = FunctionDataset(
+            data_dict['val'][0], 
+            data_dict['val'][1],
+            config.cache_dir
+        )
+        test_dataset = FunctionDataset(
+            data_dict['test'][0], 
+            data_dict['test'][1],
+            config.cache_dir
+        )
+        collate_fn = function_collate_fn
     else:  # esm
         train_dataset = ESMDataset(
             data_dict['train'][0], 
@@ -124,7 +143,7 @@ def train_model(config, data_dict, model_type='text'):
         )
         collate_fn = esm_collate_fn
     
-    # Create dataloaders
+    # Create dataloaders (unchanged)
     train_loader = DataLoader(
         train_dataset, 
         batch_size=config.batch_size,
@@ -154,6 +173,8 @@ def train_model(config, data_dict, model_type='text'):
     num_go_terms = data_dict['num_go_terms']
     if model_type == 'text':
         model = TextFusionModel(num_go_terms).to(device)
+    elif model_type == 'function':
+        model = SimpleFunctionModel(num_go_terms).to(device)
     else:  # esm
         model = ESMClassifier(num_go_terms).to(device)
     
@@ -250,7 +271,7 @@ def main():
                        choices=['BP', 'MF', 'CC'],
                        help="GO aspect")
     parser.add_argument("--model", type=str, default='both',
-                       choices=['text', 'esm', 'both'],
+                       choices=['text', 'esm', 'function', 'both', 'all'],
                        help="Which model to train")
     parser.add_argument("--debug", action="store_true",
                        help="Debug mode (small dataset)")
@@ -275,45 +296,70 @@ def main():
     # Train models
     results = {}
     
-    if args.model in ['esm', 'both']:
+    if args.model in ['esm', 'both', 'all']:
         print("\n" + "="*70)
         print("ESM BASELINE")
         print("="*70)
         results['esm'] = train_model(config, data_dict, model_type='esm')
     
-    if args.model in ['text', 'both']:
+    if args.model in ['function', 'all']:
         print("\n" + "="*70)
-        print("TEXT MODEL")
+        print("FUNCTION-ONLY MODEL")
+        print("="*70)
+        results['function'] = train_model(config, data_dict, model_type='function')
+    
+    if args.model in ['text', 'both', 'all']:
+        print("\n" + "="*70)
+        print("TEXT FUSION MODEL")
         print("="*70)
         results['text'] = train_model(config, data_dict, model_type='text')
     
     # Comparison
-    if args.model == 'both':
+    if len(results) > 1:
         print("\n" + "="*70)
         print("COMPARISON")
         print("="*70)
         
-        esm_fmax = results['esm']['test_metrics']['fmax']
-        text_fmax = results['text']['test_metrics']['fmax']
-        
-        print(f"ESM:  Fmax = {esm_fmax:.3f}")
-        print(f"Text: Fmax = {text_fmax:.3f}")
-        print(f"Diff: {text_fmax - esm_fmax:+.3f} ({(text_fmax/esm_fmax - 1)*100:+.1f}%)")
+        for model_name, model_results in results.items():
+            fmax = model_results['test_metrics']['fmax']
+            print(f"{model_name.upper()}: Fmax = {fmax:.3f}")
         
         # Save comparison
-        comparison = {
-            'aspect': config.aspect,
-            'similarity_threshold': config.similarity_threshold,
-            'esm': results['esm']['test_metrics'],
-            'text': results['text']['test_metrics'],
-            'improvement': {
-                'absolute': float(text_fmax - esm_fmax),
-                'relative_percent': float((text_fmax/esm_fmax - 1)*100)
+        if 'esm' in results:
+            esm_fmax = results['esm']['test_metrics']['fmax']
+            comparison = {
+                'aspect': config.aspect,
+                'similarity_threshold': config.similarity_threshold,
+                'esm': results['esm']['test_metrics']
             }
-        }
-        
-        with open(config.results_dir / "comparison.json", 'w') as f:
-            json.dump(comparison, f, indent=2)
+            
+            if 'function' in results:
+                func_fmax = results['function']['test_metrics']['fmax']
+                comparison['function'] = results['function']['test_metrics']
+                comparison['function_vs_esm'] = {
+                    'absolute': float(func_fmax - esm_fmax),
+                    'relative_percent': float((func_fmax/esm_fmax - 1)*100)
+                }
+                print(f"\nFunction vs ESM: {func_fmax - esm_fmax:+.3f} ({(func_fmax/esm_fmax - 1)*100:+.1f}%)")
+            
+            if 'text' in results:
+                text_fmax = results['text']['test_metrics']['fmax']
+                comparison['text'] = results['text']['test_metrics']
+                comparison['text_vs_esm'] = {
+                    'absolute': float(text_fmax - esm_fmax),
+                    'relative_percent': float((text_fmax/esm_fmax - 1)*100)
+                }
+                print(f"Text vs ESM: {text_fmax - esm_fmax:+.3f} ({(text_fmax/esm_fmax - 1)*100:+.1f}%)")
+                
+                if 'function' in results:
+                    comparison['text_vs_function'] = {
+                        'absolute': float(text_fmax - func_fmax),
+                        'relative_percent': float((text_fmax/func_fmax - 1)*100)
+                    }
+                    print(f"Text vs Function: {text_fmax - func_fmax:+.3f} ({(text_fmax/func_fmax - 1)*100:+.1f}%)")
+            
+            with open(config.results_dir / "comparison.json", 'w') as f:
+                json.dump(comparison, f, indent=2)
     
     print("\n✓ Training complete!")
     print(f"Results saved to: {config.results_dir}")

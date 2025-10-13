@@ -81,3 +81,47 @@ def esm_collate_fn(batch):
         'embeddings': embeddings,
         'labels': labels
     }
+
+
+
+
+class FunctionDataset(Dataset):
+    """Dataset for function field embeddings only."""
+    
+    def __init__(self, proteins, labels, cache_dir):
+        self.proteins = proteins
+        self.labels = torch.FloatTensor(labels)
+        self.cache_dir = cache_dir
+    
+    def __len__(self):
+        return len(self.proteins)
+    
+    def __getitem__(self, idx):
+        protein_id = self.proteins[idx]
+        
+        # Load all field embeddings
+        field_embeddings = load_embedding(self.cache_dir, protein_id, 'text')
+        
+        if field_embeddings is None:
+            raise ValueError(f"No text embedding for {protein_id}")
+        
+        # Extract only Function field (index 3 in config.text_fields)
+        # Function field has full sequence, stored as fp16
+        function_embedding = field_embeddings[3].float()  # [1, seq_len, hidden_dim]
+        
+        return {
+            'embedding': function_embedding.squeeze(0),  # [seq_len, hidden_dim]
+            'labels': self.labels[idx]
+        }
+
+
+def function_collate_fn(batch):
+    """Collate function for function-only embeddings."""
+    # Stack embeddings (they're already same length due to padding)
+    embeddings = torch.stack([b['embedding'] for b in batch])
+    labels = torch.stack([b['labels'] for b in batch])
+    
+    return {
+        'embeddings': embeddings,  # [batch_size, seq_len, hidden_dim]
+        'labels': labels
+    }
