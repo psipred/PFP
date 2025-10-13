@@ -1,0 +1,20 @@
+{
+  "aspect": "CC",
+  "similarity_threshold": 30,
+  "esm": {
+    "fmax": 0.589985616608745,
+    "threshold": 0.37626262626262624,
+    "precision": 0.6259920370131244,
+    "recall": 0.5578960099833397
+  },
+  "text": {
+    "fmax": 0.6601096603957467,
+    "threshold": 0.31686868686868686,
+    "precision": 0.656102400280776,
+    "recall": 0.6641661715038484
+  },
+  "improvement": {
+    "absolute": 0.07012404378700166,
+    "relative_percent": 11.885720907922593
+  }
+}

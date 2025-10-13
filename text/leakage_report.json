@@ -1,0 +1,892 @@
+{
+  "summary": {
+    "total_experiments": 12,
+    "experiments_with_protein_leakage": 0,
+    "experiments_with_similarity_leakage": 0,
+    "experiments_with_zero_shot_terms": 0
+  },
+  "details": [
+    {
+      "threshold": 30,
+      "aspect": "BP",
+      "protein_overlap": {
+        "aspect": "BP",
+        "threshold": 30,
+        "train_size": 14290,
+        "val_size": 1787,
+        "test_size": 1785,
+        "overlaps": {
+          "train_val": {
+            "count": 0,
+            "proteins": []
+          },
+          "train_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "val_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "all_three": {
+            "count": 0,
+            "proteins": []
+          }
+        },
+        "has_protein_leakage": false
+      },
+      "go_distribution": {
+        "train_unique_terms": 5730,
+        "val_unique_terms": 4437,
+        "test_unique_terms": 4423,
+        "train_only": 578,
+        "val_only": 0,
+        "test_only": 0,
+        "shared_all": 3708,
+        "test_novel_terms": 0,
+        "val_novel_terms": 0,
+        "has_zero_shot_terms": false
+      },
+      "sequence_similarity": {
+        "sampled_pairs": 10000,
+        "mean_similarity": 0.03387733612940763,
+        "max_similarity": 0.12442748091603054,
+        "high_similarity_count": 0,
+        "high_similarity_pairs": [],
+        "has_similarity_leakage": false
+      },
+      "label_statistics": {
+        "train": {
+          "total_proteins": 14290,
+          "proteins_with_labels": 14290,
+          "total_annotations": 275511,
+          "avg_labels_per_protein": 19.27998600419874,
+          "label_coverage": 1.0
+        },
+        "val": {
+          "total_proteins": 1787,
+          "proteins_with_labels": 1787,
+          "total_annotations": 36061,
+          "avg_labels_per_protein": 20.179630665920538,
+          "label_coverage": 1.0
+        },
+        "test": {
+          "total_proteins": 1785,
+          "proteins_with_labels": 1785,
+          "total_annotations": 33991,
+          "avg_labels_per_protein": 19.042577030812325,
+          "label_coverage": 1.0
+        }
+      }
+    },
+    {
+      "threshold": 30,
+      "aspect": "MF",
+      "protein_overlap": {
+        "aspect": "MF",
+        "threshold": 30,
+        "train_size": 13938,
+        "val_size": 1737,
+        "test_size": 1728,
+        "overlaps": {
+          "train_val": {
+            "count": 0,
+            "proteins": []
+          },
+          "train_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "val_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "all_three": {
+            "count": 0,
+            "proteins": []
+          }
+        },
+        "has_protein_leakage": false
+      },
+      "go_distribution": {
+        "train_unique_terms": 1186,
+        "val_unique_terms": 897,
+        "test_unique_terms": 886,
+        "train_only": 140,
+        "val_only": 0,
+        "test_only": 0,
+        "shared_all": 737,
+        "test_novel_terms": 0,
+        "val_novel_terms": 0,
+        "has_zero_shot_terms": false
+      },
+      "sequence_similarity": {
+        "sampled_pairs": 10000,
+        "mean_similarity": 0.03316554754642127,
+        "max_similarity": 0.11371237458193979,
+        "high_similarity_count": 0,
+        "high_similarity_pairs": [],
+        "has_similarity_leakage": false
+      },
+      "label_statistics": {
+        "train": {
+          "total_proteins": 13938,
+          "proteins_with_labels": 13938,
+          "total_annotations": 87107,
+          "avg_labels_per_protein": 6.249605395322141,
+          "label_coverage": 1.0
+        },
+        "val": {
+          "total_proteins": 1737,
+          "proteins_with_labels": 1737,
+          "total_annotations": 11221,
+          "avg_labels_per_protein": 6.459988485895222,
+          "label_coverage": 1.0
+        },
+        "test": {
+          "total_proteins": 1728,
+          "proteins_with_labels": 1728,
+          "total_annotations": 10608,
+          "avg_labels_per_protein": 6.138888888888889,
+          "label_coverage": 1.0
+        }
+      }
+    },
+    {
+      "threshold": 30,
+      "aspect": "CC",
+      "protein_overlap": {
+        "aspect": "CC",
+        "threshold": 30,
+        "train_size": 13242,
+        "val_size": 1643,
+        "test_size": 1664,
+        "overlaps": {
+          "train_val": {
+            "count": 0,
+            "proteins": []
+          },
+          "train_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "val_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "all_three": {
+            "count": 0,
+            "proteins": []
+          }
+        },
+        "has_protein_leakage": false
+      },
+      "go_distribution": {
+        "train_unique_terms": 798,
+        "val_unique_terms": 657,
+        "test_unique_terms": 650,
+        "train_only": 55,
+        "val_only": 0,
+        "test_only": 0,
+        "shared_all": 564,
+        "test_novel_terms": 0,
+        "val_novel_terms": 0,
+        "has_zero_shot_terms": false
+      },
+      "sequence_similarity": {
+        "sampled_pairs": 10000,
+        "mean_similarity": 0.03445677354917338,
+        "max_similarity": 0.12435233160621761,
+        "high_similarity_count": 0,
+        "high_similarity_pairs": [],
+        "has_similarity_leakage": false
+      },
+      "label_statistics": {
+        "train": {
+          "total_proteins": 13242,
+          "proteins_with_labels": 13242,
+          "total_annotations": 98650,
+          "avg_labels_per_protein": 7.449780999848965,
+          "label_coverage": 1.0
+        },
+        "val": {
+          "total_proteins": 1643,
+          "proteins_with_labels": 1643,
+          "total_annotations": 12005,
+          "avg_labels_per_protein": 7.306755934266586,
+          "label_coverage": 1.0
+        },
+        "test": {
+          "total_proteins": 1664,
+          "proteins_with_labels": 1664,
+          "total_annotations": 11997,
+          "avg_labels_per_protein": 7.209735576923077,
+          "label_coverage": 1.0
+        }
+      }
+    },
+    {
+      "threshold": 50,
+      "aspect": "BP",
+      "protein_overlap": {
+        "aspect": "BP",
+        "threshold": 50,
+        "train_size": 21251,
+        "val_size": 2625,
+        "test_size": 2660,
+        "overlaps": {
+          "train_val": {
+            "count": 0,
+            "proteins": []
+          },
+          "train_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "val_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "all_three": {
+            "count": 0,
+            "proteins": []
+          }
+        },
+        "has_protein_leakage": false
+      },
+      "go_distribution": {
+        "train_unique_terms": 5740,
+        "val_unique_terms": 4834,
+        "test_unique_terms": 4857,
+        "train_only": 321,
+        "val_only": 0,
+        "test_only": 0,
+        "shared_all": 4272,
+        "test_novel_terms": 0,
+        "val_novel_terms": 0,
+        "has_zero_shot_terms": false
+      },
+      "sequence_similarity": {
+        "sampled_pairs": 10000,
+        "mean_similarity": 0.03763729997551746,
+        "max_similarity": 0.12307692307692308,
+        "high_similarity_count": 0,
+        "high_similarity_pairs": [],
+        "has_similarity_leakage": false
+      },
+      "label_statistics": {
+        "train": {
+          "total_proteins": 21251,
+          "proteins_with_labels": 21251,
+          "total_annotations": 412751,
+          "avg_labels_per_protein": 19.42266246294292,
+          "label_coverage": 1.0
+        },
+        "val": {
+          "total_proteins": 2625,
+          "proteins_with_labels": 2625,
+          "total_annotations": 48879,
+          "avg_labels_per_protein": 18.620571428571427,
+          "label_coverage": 1.0
+        },
+        "test": {
+          "total_proteins": 2660,
+          "proteins_with_labels": 2660,
+          "total_annotations": 51629,
+          "avg_labels_per_protein": 19.409398496240602,
+          "label_coverage": 1.0
+        }
+      }
+    },
+    {
+      "threshold": 50,
+      "aspect": "MF",
+      "protein_overlap": {
+        "aspect": "MF",
+        "threshold": 50,
+        "train_size": 20997,
+        "val_size": 2587,
+        "test_size": 2612,
+        "overlaps": {
+          "train_val": {
+            "count": 0,
+            "proteins": []
+          },
+          "train_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "val_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "all_three": {
+            "count": 0,
+            "proteins": []
+          }
+        },
+        "has_protein_leakage": false
+      },
+      "go_distribution": {
+        "train_unique_terms": 1199,
+        "val_unique_terms": 1023,
+        "test_unique_terms": 1037,
+        "train_only": 55,
+        "val_only": 0,
+        "test_only": 0,
+        "shared_all": 916,
+        "test_novel_terms": 0,
+        "val_novel_terms": 0,
+        "has_zero_shot_terms": false
+      },
+      "sequence_similarity": {
+        "sampled_pairs": 10000,
+        "mean_similarity": 0.036990912112614405,
+        "max_similarity": 0.12350119904076738,
+        "high_similarity_count": 0,
+        "high_similarity_pairs": [],
+        "has_similarity_leakage": false
+      },
+      "label_statistics": {
+        "train": {
+          "total_proteins": 20997,
+          "proteins_with_labels": 20997,
+          "total_annotations": 135543,
+          "avg_labels_per_protein": 6.455350764394914,
+          "label_coverage": 1.0
+        },
+        "val": {
+          "total_proteins": 2587,
+          "proteins_with_labels": 2587,
+          "total_annotations": 16915,
+          "avg_labels_per_protein": 6.538461538461538,
+          "label_coverage": 1.0
+        },
+        "test": {
+          "total_proteins": 2612,
+          "proteins_with_labels": 2612,
+          "total_annotations": 16523,
+          "avg_labels_per_protein": 6.325803981623277,
+          "label_coverage": 1.0
+        }
+      }
+    },
+    {
+      "threshold": 50,
+      "aspect": "CC",
+      "protein_overlap": {
+        "aspect": "CC",
+        "threshold": 50,
+        "train_size": 19378,
+        "val_size": 2408,
+        "test_size": 2440,
+        "overlaps": {
+          "train_val": {
+            "count": 0,
+            "proteins": []
+          },
+          "train_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "val_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "all_three": {
+            "count": 0,
+            "proteins": []
+          }
+        },
+        "has_protein_leakage": false
+      },
+      "go_distribution": {
+        "train_unique_terms": 799,
+        "val_unique_terms": 724,
+        "test_unique_terms": 704,
+        "train_only": 26,
+        "val_only": 0,
+        "test_only": 0,
+        "shared_all": 655,
+        "test_novel_terms": 0,
+        "val_novel_terms": 0,
+        "has_zero_shot_terms": false
+      },
+      "sequence_similarity": {
+        "sampled_pairs": 10000,
+        "mean_similarity": 0.03841479737267074,
+        "max_similarity": 0.12253641816623821,
+        "high_similarity_count": 0,
+        "high_similarity_pairs": [],
+        "has_similarity_leakage": false
+      },
+      "label_statistics": {
+        "train": {
+          "total_proteins": 19378,
+          "proteins_with_labels": 19378,
+          "total_annotations": 142072,
+          "avg_labels_per_protein": 7.331613169573743,
+          "label_coverage": 1.0
+        },
+        "val": {
+          "total_proteins": 2408,
+          "proteins_with_labels": 2408,
+          "total_annotations": 17962,
+          "avg_labels_per_protein": 7.459302325581396,
+          "label_coverage": 1.0
+        },
+        "test": {
+          "total_proteins": 2440,
+          "proteins_with_labels": 2440,
+          "total_annotations": 17783,
+          "avg_labels_per_protein": 7.288114754098361,
+          "label_coverage": 1.0
+        }
+      }
+    },
+    {
+      "threshold": 70,
+      "aspect": "BP",
+      "protein_overlap": {
+        "aspect": "BP",
+        "threshold": 70,
+        "train_size": 26900,
+        "val_size": 3351,
+        "test_size": 3327,
+        "overlaps": {
+          "train_val": {
+            "count": 0,
+            "proteins": []
+          },
+          "train_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "val_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "all_three": {
+            "count": 0,
+            "proteins": []
+          }
+        },
+        "has_protein_leakage": false
+      },
+      "go_distribution": {
+        "train_unique_terms": 5743,
+        "val_unique_terms": 5186,
+        "test_unique_terms": 5167,
+        "train_only": 167,
+        "val_only": 0,
+        "test_only": 0,
+        "shared_all": 4777,
+        "test_novel_terms": 0,
+        "val_novel_terms": 0,
+        "has_zero_shot_terms": false
+      },
+      "sequence_similarity": {
+        "sampled_pairs": 10000,
+        "mean_similarity": 0.0358811759403186,
+        "max_similarity": 0.11785972523499638,
+        "high_similarity_count": 0,
+        "high_similarity_pairs": [],
+        "has_similarity_leakage": false
+      },
+      "label_statistics": {
+        "train": {
+          "total_proteins": 26900,
+          "proteins_with_labels": 26900,
+          "total_annotations": 534292,
+          "avg_labels_per_protein": 19.862156133828996,
+          "label_coverage": 1.0
+        },
+        "val": {
+          "total_proteins": 3351,
+          "proteins_with_labels": 3351,
+          "total_annotations": 64395,
+          "avg_labels_per_protein": 19.216651745747537,
+          "label_coverage": 1.0
+        },
+        "test": {
+          "total_proteins": 3327,
+          "proteins_with_labels": 3327,
+          "total_annotations": 65449,
+          "avg_labels_per_protein": 19.672076946197777,
+          "label_coverage": 1.0
+        }
+      }
+    },
+    {
+      "threshold": 70,
+      "aspect": "MF",
+      "protein_overlap": {
+        "aspect": "MF",
+        "threshold": 70,
+        "train_size": 26613,
+        "val_size": 3292,
+        "test_size": 3350,
+        "overlaps": {
+          "train_val": {
+            "count": 0,
+            "proteins": []
+          },
+          "train_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "val_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "all_three": {
+            "count": 0,
+            "proteins": []
+          }
+        },
+        "has_protein_leakage": false
+      },
+      "go_distribution": {
+        "train_unique_terms": 1200,
+        "val_unique_terms": 1080,
+        "test_unique_terms": 1067,
+        "train_only": 37,
+        "val_only": 0,
+        "test_only": 0,
+        "shared_all": 984,
+        "test_novel_terms": 0,
+        "val_novel_terms": 0,
+        "has_zero_shot_terms": false
+      },
+      "sequence_similarity": {
+        "sampled_pairs": 10000,
+        "mean_similarity": 0.037494322644104246,
+        "max_similarity": 0.11785972523499638,
+        "high_similarity_count": 0,
+        "high_similarity_pairs": [],
+        "has_similarity_leakage": false
+      },
+      "label_statistics": {
+        "train": {
+          "total_proteins": 26613,
+          "proteins_with_labels": 26613,
+          "total_annotations": 173680,
+          "avg_labels_per_protein": 6.5261338443617785,
+          "label_coverage": 1.0
+        },
+        "val": {
+          "total_proteins": 3292,
+          "proteins_with_labels": 3292,
+          "total_annotations": 21355,
+          "avg_labels_per_protein": 6.4869380315917375,
+          "label_coverage": 1.0
+        },
+        "test": {
+          "total_proteins": 3350,
+          "proteins_with_labels": 3350,
+          "total_annotations": 21922,
+          "avg_labels_per_protein": 6.543880597014925,
+          "label_coverage": 1.0
+        }
+      }
+    },
+    {
+      "threshold": 70,
+      "aspect": "CC",
+      "protein_overlap": {
+        "aspect": "CC",
+        "threshold": 70,
+        "train_size": 24300,
+        "val_size": 3047,
+        "test_size": 3039,
+        "overlaps": {
+          "train_val": {
+            "count": 0,
+            "proteins": []
+          },
+          "train_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "val_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "all_three": {
+            "count": 0,
+            "proteins": []
+          }
+        },
+        "has_protein_leakage": false
+      },
+      "go_distribution": {
+        "train_unique_terms": 800,
+        "val_unique_terms": 745,
+        "test_unique_terms": 737,
+        "train_only": 9,
+        "val_only": 0,
+        "test_only": 0,
+        "shared_all": 691,
+        "test_novel_terms": 0,
+        "val_novel_terms": 0,
+        "has_zero_shot_terms": false
+      },
+      "sequence_similarity": {
+        "sampled_pairs": 10000,
+        "mean_similarity": 0.035431490187885786,
+        "max_similarity": 0.13258897418004187,
+        "high_similarity_count": 0,
+        "high_similarity_pairs": [],
+        "has_similarity_leakage": false
+      },
+      "label_statistics": {
+        "train": {
+          "total_proteins": 24300,
+          "proteins_with_labels": 24300,
+          "total_annotations": 181814,
+          "avg_labels_per_protein": 7.482057613168724,
+          "label_coverage": 1.0
+        },
+        "val": {
+          "total_proteins": 3047,
+          "proteins_with_labels": 3047,
+          "total_annotations": 22339,
+          "avg_labels_per_protein": 7.331473580571053,
+          "label_coverage": 1.0
+        },
+        "test": {
+          "total_proteins": 3039,
+          "proteins_with_labels": 3039,
+          "total_annotations": 21937,
+          "avg_labels_per_protein": 7.218492925304377,
+          "label_coverage": 1.0
+        }
+      }
+    },
+    {
+      "threshold": 95,
+      "aspect": "BP",
+      "protein_overlap": {
+        "aspect": "BP",
+        "threshold": 95,
+        "train_size": 35339,
+        "val_size": 4423,
+        "test_size": 4427,
+        "overlaps": {
+          "train_val": {
+            "count": 0,
+            "proteins": []
+          },
+          "train_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "val_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "all_three": {
+            "count": 0,
+            "proteins": []
+          }
+        },
+        "has_protein_leakage": false
+      },
+      "go_distribution": {
+        "train_unique_terms": 5743,
+        "val_unique_terms": 5545,
+        "test_unique_terms": 5512,
+        "train_only": 33,
+        "val_only": 0,
+        "test_only": 0,
+        "shared_all": 5347,
+        "test_novel_terms": 0,
+        "val_novel_terms": 0,
+        "has_zero_shot_terms": false
+      },
+      "sequence_similarity": {
+        "sampled_pairs": 10000,
+        "mean_similarity": 0.036719370956815975,
+        "max_similarity": 0.3710972346119536,
+        "high_similarity_count": 0,
+        "high_similarity_pairs": [],
+        "has_similarity_leakage": false
+      },
+      "label_statistics": {
+        "train": {
+          "total_proteins": 35339,
+          "proteins_with_labels": 35339,
+          "total_annotations": 749327,
+          "avg_labels_per_protein": 21.20396728826509,
+          "label_coverage": 1.0
+        },
+        "val": {
+          "total_proteins": 4423,
+          "proteins_with_labels": 4423,
+          "total_annotations": 95345,
+          "avg_labels_per_protein": 21.556635767578566,
+          "label_coverage": 1.0
+        },
+        "test": {
+          "total_proteins": 4427,
+          "proteins_with_labels": 4427,
+          "total_annotations": 96060,
+          "avg_labels_per_protein": 21.698667269030945,
+          "label_coverage": 1.0
+        }
+      }
+    },
+    {
+      "threshold": 95,
+      "aspect": "MF",
+      "protein_overlap": {
+        "aspect": "MF",
+        "threshold": 95,
+        "train_size": 35463,
+        "val_size": 4501,
+        "test_size": 4419,
+        "overlaps": {
+          "train_val": {
+            "count": 0,
+            "proteins": []
+          },
+          "train_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "val_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "all_three": {
+            "count": 0,
+            "proteins": []
+          }
+        },
+        "has_protein_leakage": false
+      },
+      "go_distribution": {
+        "train_unique_terms": 1200,
+        "val_unique_terms": 1157,
+        "test_unique_terms": 1164,
+        "train_only": 9,
+        "val_only": 0,
+        "test_only": 0,
+        "shared_all": 1130,
+        "test_novel_terms": 0,
+        "val_novel_terms": 0,
+        "has_zero_shot_terms": false
+      },
+      "sequence_similarity": {
+        "sampled_pairs": 10000,
+        "mean_similarity": 0.0354580347354401,
+        "max_similarity": 0.7387218045112782,
+        "high_similarity_count": 1,
+        "high_similarity_pairs": [
+          {
+            "train_protein": "O55127",
+            "test_protein": "O43174",
+            "similarity": 0.7387218045112782
+          }
+        ],
+        "has_similarity_leakage": false
+      },
+      "label_statistics": {
+        "train": {
+          "total_proteins": 35463,
+          "proteins_with_labels": 35463,
+          "total_annotations": 237148,
+          "avg_labels_per_protein": 6.687195104757071,
+          "label_coverage": 1.0
+        },
+        "val": {
+          "total_proteins": 4501,
+          "proteins_with_labels": 4501,
+          "total_annotations": 30241,
+          "avg_labels_per_protein": 6.7187291712952675,
+          "label_coverage": 1.0
+        },
+        "test": {
+          "total_proteins": 4419,
+          "proteins_with_labels": 4419,
+          "total_annotations": 30386,
+          "avg_labels_per_protein": 6.876216338538131,
+          "label_coverage": 1.0
+        }
+      }
+    },
+    {
+      "threshold": 95,
+      "aspect": "CC",
+      "protein_overlap": {
+        "aspect": "CC",
+        "threshold": 95,
+        "train_size": 32222,
+        "val_size": 3968,
+        "test_size": 4066,
+        "overlaps": {
+          "train_val": {
+            "count": 0,
+            "proteins": []
+          },
+          "train_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "val_test": {
+            "count": 0,
+            "proteins": []
+          },
+          "all_three": {
+            "count": 0,
+            "proteins": []
+          }
+        },
+        "has_protein_leakage": false
+      },
+      "go_distribution": {
+        "train_unique_terms": 800,
+        "val_unique_terms": 766,
+        "test_unique_terms": 771,
+        "train_only": 7,
+        "val_only": 0,
+        "test_only": 0,
+        "shared_all": 744,
+        "test_novel_terms": 0,
+        "val_novel_terms": 0,
+        "has_zero_shot_terms": false
+      },
+      "sequence_similarity": {
+        "sampled_pairs": 10000,
+        "mean_similarity": 0.037852378998028596,
+        "max_similarity": 0.13290689410092396,
+        "high_similarity_count": 0,
+        "high_similarity_pairs": [],
+        "has_similarity_leakage": false
+      },
+      "label_statistics": {
+        "train": {
+          "total_proteins": 32222,
+          "proteins_with_labels": 32222,
+          "total_annotations": 251209,
+          "avg_labels_per_protein": 7.796195146173422,
+          "label_coverage": 1.0
+        },
+        "val": {
+          "total_proteins": 3968,
+          "proteins_with_labels": 3968,
+          "total_annotations": 30723,
+          "avg_labels_per_protein": 7.742691532258065,
+          "label_coverage": 1.0
+        },
+        "test": {
+          "total_proteins": 4066,
+          "proteins_with_labels": 4066,
+          "total_annotations": 31285,
+          "avg_labels_per_protein": 7.694294146581407,
+          "label_coverage": 1.0
+        }
+      }
+    }
+  ]
+}

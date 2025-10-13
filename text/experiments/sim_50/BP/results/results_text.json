@@ -1,0 +1,16 @@
+{
+  "model_type": "text",
+  "aspect": "BP",
+  "similarity_threshold": 50,
+  "num_go_terms": 5740,
+  "test_metrics": {
+    "fmax": 0.4613732895662537,
+    "threshold": 0.15848484848484848,
+    "precision": 0.4396294939886239,
+    "recall": 0.48537986978087
+  },
+  "best_val_fmax": 0.481576342966753,
+  "train_size": 21251,
+  "val_size": 2625,
+  "test_size": 2660
+}

@@ -1,0 +1,16 @@
+{
+  "model_type": "esm",
+  "aspect": "MF",
+  "similarity_threshold": 50,
+  "num_go_terms": 1199,
+  "test_metrics": {
+    "fmax": 0.6822519735285916,
+    "threshold": 0.38616161616161615,
+    "precision": 0.7436879610184203,
+    "recall": 0.6301918854886706
+  },
+  "best_val_fmax": 0.6892696018102762,
+  "train_size": 20997,
+  "val_size": 2587,
+  "test_size": 2612
+}
