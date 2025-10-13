@@ -1,0 +1,477 @@
+# GO Function Prediction Pipeline
+
+This pipeline processes protein sequences and creates standardized benchmarks for Gene Ontology (GO) function prediction tasks. It consists of two main scripts:
+
+1. **`go_annotation_pipeline.py`**: Filters proteins and assigns experimental GO annotations
+2. **`create_go_benchmarks.py`**: Creates homology-partitioned train/val/test splits at multiple similarity thresholds
+
+## Table of Contents
+- [Overview](#overview)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Detailed Usage](#detailed-usage)
+- [Output Files](#output-files)
+- [Configuration](#configuration)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## Overview
+
+### Pipeline Workflow
+
+```
+Input FASTA
+    ↓
+[1. Filter by length ≤1024]
+    ↓
+[2. Assign experimental GO annotations]
+    ↓
+[3. Propagate GO hierarchy]
+    ↓
+[4. Apply exclusion filters]
+    ↓
+Annotated proteins
+    ↓
+[5. Cluster at multiple similarities (30%, 50%, 70%, 95%)]
+    ↓
+[6. Split clusters into train/val/test (80/10/10)]
+    ↓
+Final benchmarks
+```
+
+### Key Features
+
+- **Quality filtering**: Only proteins ≤1024 amino acids with experimental evidence
+- **Experimental evidence only**: Uses 10 experimental evidence codes (EXP, IDA, IPI, IMP, IGI, IEP, HTP, HDA, HMP, HGI, HEP)
+- **Hierarchy propagation**: Includes ancestor terms via is_a and part_of relationships
+- **Exclusion lists**: Removes obsolete terms and root terms (GO:0008150, GO:0003674, GO:0005575)
+- **Negation filtering**: Excludes annotations with NOT, contributes_to, colocalizes_with qualifiers
+- **Homology partitioning**: Creates 4 benchmarks at different sequence similarity thresholds
+- **No data leakage**: Cluster-based splitting ensures no similar sequences across splits
+
+---
+
+## Requirements
+
+### Software Dependencies
+
+- **Python 3.7+**
+- **MMseqs2** (for clustering)
+  ```bash
+  # Install via conda (recommended)
+  conda install -c bioconda mmseqs2
+  
+  # Or download from: https://github.com/soedinglab/MMseqs2
+  ```
+
+### Python Packages
+
+```bash
+pip install pandas tqdm
+```
+
+Standard library packages used: `os`, `gzip`, `json`, `urllib`, `collections`, `pathlib`, `typing`, `subprocess`, `shutil`, `random`
+
+---
+
+## Installation
+
+1. **Clone or download the scripts:**
+   ```bash
+   mkdir -p ~/project/PFP/benchmark
+   cd ~/project/PFP/benchmark
+   # Place go_annotation_pipeline.py and create_go_benchmarks.py here
+   ```
+
+2. **Verify MMseqs2 installation:**
+   ```bash
+   mmseqs version
+   # Should output version 13.x or higher
+   ```
+
+3. **Create output directory:**
+   ```bash
+   mkdir -p ~/Datasets/protad/go_annotations
+   ```
+
+---
+
+## Quick Start
+
+### Step 1: Run GO Annotation Pipeline
+
+```bash
+python go_annotation_pipeline.py
+```
+
+**Expected runtime:** 10-30 minutes (depending on dataset size and internet speed)
+
+This will:
+- Filter proteins by length
+- Download GO annotation data (~5 GB)
+- Assign experimental GO annotations
+- Propagate GO hierarchy
+- Generate filtered FASTA and annotation files
+
+### Step 2: Create Benchmarks
+
+```bash
+python create_go_benchmarks.py
+```
+
+**Expected runtime:** 20-60 minutes (depending on dataset size)
+
+This will:
+- Cluster proteins at 30%, 50%, 70%, and 95% similarity
+- Split each clustering into train/val/test sets
+- Generate 4 complete benchmarks
+
+---
+
+## Detailed Usage
+
+### Script 1: GO Annotation Pipeline
+
+#### Configuration
+
+Edit the configuration section in `go_annotation_pipeline.py`:
+
+```python
+# Input/Output paths
+INPUT_FASTA = "/home/zijianzhou/Datasets/protad/protad.fasta"
+OUTPUT_DIR = "/home/zijianzhou/Datasets/protad/go_annotations"
+
+# Filtering parameters
+MAX_SEQUENCE_LENGTH = 1024  # Maximum protein length in amino acids
+```
+
+#### Input Format
+
+Input FASTA should use UniProt format:
+```
+>sp|P12345|PROTEIN_NAME Description
+MATLQVKL...
+>sp|Q67890|OTHER_PROTEIN Description
+MVHLTPEEK...
+```
+
+#### Running the Pipeline
+
+```bash
+python go_annotation_pipeline.py
+```
+
+The script will:
+1. Load your FASTA file
+2. Filter by sequence length
+3. Download required data files (if not cached):
+   - `goa_uniprot_all.gaf.gz` (~5 GB)
+   - `go-basic.obo` (~50 MB)
+   - Exclusion lists
+4. Parse and process GO annotations
+5. Save filtered proteins and annotations
+
+#### Output Files
+
+```
+go_annotations/
+├── proteins_filtered.fasta          # Filtered protein sequences
+├── protein_go_annotations.tsv       # Protein → GO mappings
+├── go_terms_info.tsv                # GO term metadata and frequencies
+├── excluded_go_terms.txt            # List of excluded GO terms
+├── evidence_codes_used.txt          # Evidence codes used
+├── filtering_statistics.json        # Pipeline statistics
+└── [downloaded data files]          # Cached GO data
+```
+
+**Key output file: `protein_go_annotations.tsv`**
+```tsv
+protein_id    go_terms
+P12345        GO:0003824,GO:0005737,GO:0008152
+Q67890        GO:0016020,GO:0055085
+```
+
+---
+
+### Script 2: Benchmark Creation
+
+#### Configuration
+
+Edit the configuration section in `create_go_benchmarks.py`:
+
+```python
+BASE_DIR = "/home/zijianzhou/Datasets/protad/go_annotations"
+FASTA_FILE = os.path.join(BASE_DIR, "proteins_filtered.fasta")
+ANNOTATIONS_FILE = os.path.join(BASE_DIR, "protein_go_annotations.tsv")
+OUTPUT_DIR = os.path.join(BASE_DIR, "benchmarks")
+
+# Similarity thresholds for benchmarks
+SIMILARITY_THRESHOLDS = [0.30, 0.50, 0.70, 0.95]
+
+# Split ratios
+TRAIN_RATIO = 0.8
+VAL_RATIO = 0.1
+TEST_RATIO = 0.1
+```
+
+#### Running Benchmark Creation
+
+```bash
+python create_go_benchmarks.py
+```
+
+The script will:
+1. Load filtered proteins and annotations
+2. For each similarity threshold (30%, 50%, 70%, 95%):
+   - Run MMseqs2 clustering
+   - Split clusters into train/val/test
+   - Select one representative protein per cluster
+   - Save splits with GO annotations
+3. Generate summary statistics
+
+#### Output Structure
+/home/zijianzhou/Datasets/protad/go_annotations/benchmarks
+```
+benchmarks/
+├── similarity_30/
+│   ├── train.tsv              # Training set
+│   ├── val.tsv                # Validation set
+│   ├── test.tsv               # Test set
+│   └── split_stats.txt        # Split statistics
+├── similarity_50/
+│   ├── train.tsv
+│   ├── val.tsv
+│   ├── test.tsv
+│   └── split_stats.txt
+├── similarity_70/
+│   └── ...
+├── similarity_95/
+│   └── ...
+└── benchmark_summary.txt      # Overall summary
+```
+
+**Split file format (`train.tsv`, `val.tsv`, `test.tsv`):**
+```tsv
+protein_id    go_terms
+P12345        GO:0003824,GO:0005737,GO:0008152
+Q67890        GO:0016020,GO:0055085
+```
+
+---
+
+## Output Files
+
+### GO Annotation Pipeline Outputs
+
+| File | Description | Format |
+|------|-------------|--------|
+| `proteins_filtered.fasta` | Filtered proteins (≤1024 aa, experimental GO) | FASTA |
+| `protein_go_annotations.tsv` | Protein → GO term mappings | TSV |
+| `go_terms_info.tsv` | GO term names, aspects, frequencies | TSV |
+| `excluded_go_terms.txt` | Excluded GO terms (roots + lists) | TXT |
+| `filtering_statistics.json` | Pipeline statistics | JSON |
+
+### Benchmark Outputs
+
+| File | Description | Content |
+|------|-------------|---------|
+| `train.tsv` | Training proteins with GO annotations | protein_id, go_terms |
+| `val.tsv` | Validation proteins with GO annotations | protein_id, go_terms |
+| `test.tsv` | Test proteins with GO annotations | protein_id, go_terms |
+| `split_stats.txt` | Split statistics (counts, ratios) | Text summary |
+| `benchmark_summary.txt` | Overall benchmark summary | Text summary |
+
+---
+
+## Configuration
+
+### Evidence Codes
+
+The pipeline uses these experimental evidence codes:
+
+**Manual Experimental:**
+- `EXP`: Inferred from Experiment
+- `IDA`: Inferred from Direct Assay
+- `IPI`: Inferred from Physical Interaction
+- `IMP`: Inferred from Mutant Phenotype
+- `IGI`: Inferred from Genetic Interaction
+- `IEP`: Inferred from Expression Pattern
+
+**High-throughput Experimental:**
+- `HTP`: High Throughput Direct Assay
+- `HDA`: High Throughput Direct Assay
+- `HMP`: High Throughput Mutant Phenotype
+- `HGI`: High Throughput Genetic Interaction
+- `HEP`: High Throughput Expression Pattern
+
+### Excluded Terms
+
+1. **GO Root Terms** (always excluded):
+   - `GO:0008150` (biological_process)
+   - `GO:0003674` (molecular_function)
+   - `GO:0005575` (cellular_component)
+
+2. **Exclusion Lists** (from GO Consortium):
+   - `gocheck_do_not_annotate.obo`: Terms not for annotation
+   - `gocheck_obsoletion_candidate.obo`: Obsolete/deprecated terms
+
+3. **Qualifier-based Exclusions**:
+   - Annotations with `NOT` qualifier
+   - Annotations with `contributes_to` qualifier
+   - Annotations with `colocalizes_with` qualifier
+
+### Similarity Thresholds
+
+| Threshold | Use Case |
+|-----------|----------|
+| 30% | Hardest: Very remote homologs |
+| 50% | Hard: Distant homologs |
+| 70% | Medium: Moderate homologs |
+| 95% | Easy: Close homologs |
+
+---
+
+## Example Output
+
+### Pipeline Statistics
+
+```
+PIPELINE COMPLETE
+============================================================
+Initial proteins:                 50,000
+After length filter (≤1024):      35,000
+With experimental annotations:    28,500
+After propagation:                28,500
+After exclusion filter:           28,200
+Final proteins:                   28,200
+
+Total unique GO terms:            8,500
+Avg GO terms per protein:         45.2
+
+GO terms by aspect:
+  biological_process        4,200
+  molecular_function        2,800
+  cellular_component        1,500
+
+Excluded terms:
+  Root terms:                   3
+  Exclusion list terms:         150
+  Total excluded:               153
+```
+
+### Benchmark Summary
+
+```
+GO Function Prediction Benchmarks
+============================================================
+
+Similarity 30%: 18,080 train, 2,260 val, 2,260 test
+Similarity 50%: 16,240 train, 2,030 val, 2,030 test
+Similarity 70%: 14,160 train, 1,770 val, 1,770 test
+Similarity 95%: 9,040 train, 1,130 val, 1,130 test
+```
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+#### 1. MMseqs2 not found
+```
+Error: mmseqs: command not found
+```
+**Solution:** Install MMseqs2 via conda or download from GitHub
+```bash
+conda install -c bioconda mmseqs2
+```
+
+#### 2. Download failures
+```
+Error downloading GO data files
+```
+**Solution:** Check internet connection or manually download files:
+- GOA: http://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/
+- GO OBO: http://current.geneontology.org/ontology/
+
+#### 3. Memory issues with large datasets
+```
+MemoryError or killed during clustering
+```
+**Solution:** Reduce dataset size or use a machine with more RAM
+- Try filtering to shorter sequences (e.g., MAX_SEQUENCE_LENGTH = 512)
+- Process in batches
+
+#### 4. No proteins with annotations
+```
+Final proteins: 0
+```
+**Solution:** 
+- Check that input FASTA uses UniProt IDs
+- Verify proteins are in GOA database
+- Try relaxing length filter
+
+#### 5. Clustering takes too long
+```
+MMseqs2 clustering stuck or very slow
+```
+**Solution:**
+- Reduce number of threads if running on shared system
+- Use faster similarity threshold (higher values = faster)
+- Check disk space in tmp directory
+
+---
+
+## Advanced Usage
+
+### Customizing Evidence Codes
+
+To use only manual experimental evidence (no HTP):
+
+```python
+EXPERIMENTAL_EVIDENCE_CODES = {
+    'EXP', 'IDA', 'IPI', 'IMP', 'IGI', 'IEP'
+}
+```
+
+### Custom Similarity Thresholds
+
+```python
+SIMILARITY_THRESHOLDS = [0.40, 0.60, 0.80]  # 3 benchmarks instead of 4
+```
+
+### Different Split Ratios
+
+```python
+TRAIN_RATIO = 0.7  # 70% train
+VAL_RATIO = 0.15   # 15% val
+TEST_RATIO = 0.15  # 15% test
+```
+
+### Processing Subset of GO Aspects
+
+To create benchmarks for only molecular function:
+
+Edit `go_annotation_pipeline.py` to filter by namespace:
+```python
+# After propagation, filter by aspect
+protein_go_filtered = {}
+for pid, go_terms in protein_go.items():
+    mf_terms = {g for g in go_terms if term_info.get(g, {}).get('namespace') == 'molecular_function'}
+    if mf_terms:
+        protein_go_filtered[pid] = mf_terms
+```
+
+---
+
+## Citation
+
+If you use this pipeline, please cite the relevant databases:
+
+- **Gene Ontology:** Gene Ontology Consortium (2023) Nucleic Acids Res.
+- **UniProt GOA:** Huntley et al. (2015) Nucleic Acids Res.
+- **MMseqs2:** Steinegger & Söding (2017) Nature Biotechnology
+
+---
