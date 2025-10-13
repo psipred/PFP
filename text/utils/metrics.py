@@ -1,6 +1,7 @@
 """Evaluation metrics for GO prediction."""
 
 import numpy as np
+from sklearn.metrics import average_precision_score
 
 
 def compute_fmax(y_true, y_pred, thresholds=None):
@@ -42,3 +43,29 @@ def compute_fmax(y_true, y_pred, thresholds=None):
             best_recall = recall
     
     return best_fmax, best_threshold, best_precision, best_recall
+
+
+def compute_auprc(y_true, y_pred):
+    """
+    Compute micro-averaged and macro-averaged AUPRC.
+    
+    Args:
+        y_true: Ground truth labels (N x K)
+        y_pred: Predicted probabilities (N x K)
+    
+    Returns:
+        micro_auprc, macro_auprc
+    """
+    # Micro-averaged AUPRC (flatten all predictions)
+    micro_auprc = average_precision_score(y_true.ravel(), y_pred.ravel())
+    
+    # Macro-averaged AUPRC (average over GO terms)
+    term_auprcs = []
+    for i in range(y_true.shape[1]):
+        if y_true[:, i].sum() > 0:  # Only compute for terms with at least one positive
+            term_auprc = average_precision_score(y_true[:, i], y_pred[:, i])
+            term_auprcs.append(term_auprc)
+    
+    macro_auprc = np.mean(term_auprcs) if term_auprcs else 0.0
+    
+    return micro_auprc, macro_auprc

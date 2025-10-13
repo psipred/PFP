@@ -24,6 +24,10 @@ class Config:
     num_epochs: int = 50
     max_text_length: int = 512
     
+    # Early stopping
+    early_stopping_patience: int = 10
+    min_delta: float = 0.0001
+    
     # Experiment settings
     similarity_threshold: int = 30
     aspect: str = 'BP'  # BP, MF, or CC
@@ -57,3 +61,4 @@ class Config:
         if self.debug_mode:
             self.num_epochs = 2
             self.batch_size = 16
+            self.early_stopping_patience = 2

@@ -1,0 +1,20 @@
+{
+  "model_type": "concat",
+  "aspect": "CC",
+  "similarity_threshold": 30,
+  "num_go_terms": 798,
+  "test_metrics": {
+    "fmax": 0.6808433032549203,
+    "threshold": 0.30696969696969695,
+    "precision": 0.6820794153160091,
+    "recall": 0.6796116635261829,
+    "micro_auprc": 0.6580415392127119,
+    "macro_auprc": 0.46227081560129346
+  },
+  "best_val_fmax": 0.6780190938257472,
+  "best_epoch": 33,
+  "total_epochs": 43,
+  "train_size": 13242,
+  "val_size": 1643,
+  "test_size": 1664
+}
