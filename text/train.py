@@ -20,7 +20,10 @@ from models.simple_function_model import SimpleFunctionModel
 from models.esm_model import ESMClassifier
 from utils.metrics import compute_fmax, compute_auprc
 from utils.cafa_evaluation import evaluate_with_cafa
-
+from models.cross_attention_model import CrossModalAttentionFusion
+from models.gated_fusion_model import GatedFusionModel
+from models.gated_cross_attention_model import GatedCrossAttentionFusion
+from data.dataset import MultiModalDataset, multimodal_collate_fn
 
 class EarlyStopping:
     """Early stopping to stop training when validation metric doesn't improve."""
@@ -64,7 +67,12 @@ def train_epoch(model, loader, optimizer, criterion, device, model_type='text'):
     total_loss = 0
     
     for batch in tqdm(loader, desc="Training", leave=False):
-        if model_type in ['text', 'concat']:
+        if model_type in ['cross_attn', 'gated', 'gated_cross']:
+            # Multi-modal models
+            text_inputs = [h.to(device) for h in batch['hidden_states']]
+            esm_inputs = batch['esm_embeddings'].to(device)
+            logits = model(text_inputs, esm_inputs)
+        elif model_type in ['text', 'concat']:
             inputs = [h.to(device) for h in batch['hidden_states']]
             logits = model(inputs)
         else:  # esm or function
@@ -93,7 +101,11 @@ def evaluate(model, loader, criterion, device, model_type='text'):
     
     with torch.no_grad():
         for batch in tqdm(loader, desc="Evaluating", leave=False):
-            if model_type in ['text', 'concat']:
+            if model_type in ['cross_attn', 'gated', 'gated_cross']:
+                text_inputs = [h.to(device) for h in batch['hidden_states']]
+                esm_inputs = batch['esm_embeddings'].to(device)
+                logits = model(text_inputs, esm_inputs)
+            elif model_type in ['text', 'concat']:
                 inputs = [h.to(device) for h in batch['hidden_states']]
                 logits = model(inputs)
             else:  # esm or function
@@ -122,13 +134,20 @@ def evaluate(model, loader, criterion, device, model_type='text'):
 
 def train_model(config, data_dict, model_type='text'):
     """
-    Train a model (text, concat, esm, or function) with early stopping.
+    Train a model with early stopping.
+    Supports: text, concat, esm, function, cross_attn, gated, gated_cross
     """
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"\nTraining {model_type.upper()} model on {device}")
     
     # Create datasets
-    if model_type in ['text', 'concat']:
+    if model_type in ['cross_attn', 'gated', 'gated_cross']:
+        # Multi-modal models need both text and ESM
+        train_dataset = MultiModalDataset(data_dict['train'][0], data_dict['train'][1], config.cache_dir)
+        val_dataset = MultiModalDataset(data_dict['val'][0], data_dict['val'][1], config.cache_dir)
+        test_dataset = MultiModalDataset(data_dict['test'][0], data_dict['test'][1], config.cache_dir)
+        collate_fn = multimodal_collate_fn
+    elif model_type in ['text', 'concat']:
         train_dataset = TextDataset(data_dict['train'][0], data_dict['train'][1], config.cache_dir)
         val_dataset = TextDataset(data_dict['val'][0], data_dict['val'][1], config.cache_dir)
         test_dataset = TextDataset(data_dict['test'][0], data_dict['test'][1], config.cache_dir)
@@ -166,8 +185,14 @@ def train_model(config, data_dict, model_type='text'):
         model = ConcatModel(num_go_terms).to(device)
     elif model_type == 'function':
         model = SimpleFunctionModel(num_go_terms).to(device)
-    else:  # esm
+    elif model_type == 'esm':
         model = ESMClassifier(num_go_terms).to(device)
+    elif model_type == 'cross_attn':
+        model = CrossModalAttentionFusion(num_go_terms).to(device)
+    elif model_type == 'gated':
+        model = GatedFusionModel(num_go_terms).to(device)
+    elif model_type == 'gated_cross':
+        model = GatedCrossAttentionFusion(num_go_terms).to(device)
     
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     
@@ -301,7 +326,8 @@ def main():
     parser.add_argument("--threshold", type=int, default=30, help="Similarity threshold (30/50/70/95)")
     parser.add_argument("--aspect", type=str, default='BP', choices=['BP', 'MF', 'CC'], help="GO aspect")
     parser.add_argument("--model", type=str, default='both', 
-                       choices=['text', 'concat', 'esm', 'function', 'both', 'all'], 
+                       choices=['text', 'concat', 'esm', 'function', 
+                               'cross_attn', 'gated', 'gated_cross', 'both', 'all'], 
                        help="Which model to train")
     parser.add_argument("--debug", action="store_true", help="Debug mode (small dataset)")
     
@@ -346,47 +372,85 @@ def main():
         print("="*70)
         results['text'] = train_model(config, data_dict, model_type='text')
     
-    # Comparison
-    if len(results) > 1:
+    # NEW: Train cross-attention model
+    if args.model in ['cross_attn', 'all']:
         print("\n" + "="*70)
-        print("FINAL COMPARISON")
+        print("CROSS-ATTENTION FUSION MODEL")
         print("="*70)
+        results['cross_attn'] = train_model(config, data_dict, model_type='cross_attn')
+    
+    # NEW: Train gated fusion model
+    if args.model in ['gated', 'all']:
+        print("\n" + "="*70)
+        print("GATED FUSION MODEL")
+        print("="*70)
+        results['gated'] = train_model(config, data_dict, model_type='gated')
+    
+    # NEW: Train gated cross-attention model
+    if args.model in ['gated_cross', 'all']:
+        print("\n" + "="*70)
+        print("GATED CROSS-ATTENTION FUSION MODEL")
+        print("="*70)
+        results['gated_cross'] = train_model(config, data_dict, model_type='gated_cross')
+    
+    # # Comparison
+    # if len(results) > 1:
+    #     print("\n" + "="*70)
+    #     print("FINAL COMPARISON")
+    #     print("="*70)
         
-        for model_name, model_results in results.items():
-            metrics = model_results['test_metrics']
-            print(f"\n{model_name.upper()}:")
-            print(f"  Fmax: {metrics['fmax']:.4f}")
-            print(f"  Micro-AUPRC: {metrics['micro_auprc']:.4f}")
-            print(f"  Macro-AUPRC: {metrics['macro_auprc']:.4f}")
-            if 'cafa_fmax' in metrics:
-                print(f"  CAFA Fmax: {metrics['cafa_fmax']:.4f}")
+    #     for model_name, model_results in results.items():
+    #         metrics = model_results['test_metrics']
+    #         print(f"\n{model_name.upper()}:")
+    #         print(f"  Fmax: {metrics['fmax']:.4f}")
+    #         print(f"  Micro-AUPRC: {metrics['micro_auprc']:.4f}")
+    #         print(f"  Macro-AUPRC: {metrics['macro_auprc']:.4f}")
+    #         if 'cafa_fmax' in metrics:
+    #             print(f"  CAFA Fmax: {metrics['cafa_fmax']:.4f}")
         
-        # Save comparison
-        if 'esm' in results:
-            esm_metrics = results['esm']['test_metrics']
-            comparison = {
-                'aspect': config.aspect,
-                'similarity_threshold': config.similarity_threshold,
-                'esm': esm_metrics
-            }
+    #     # Save comparison
+    #     if 'esm' in results:
+    #         esm_metrics = results['esm']['test_metrics']
+    #         comparison = {
+    #             'aspect': config.aspect,
+    #             'similarity_threshold': config.similarity_threshold,
+    #             'esm': esm_metrics
+    #         }
             
-            for model_name in ['function', 'concat', 'text']:
-                if model_name in results:
-                    model_metrics = results[model_name]['test_metrics']
-                    comparison[model_name] = model_metrics
-                    comparison[f'{model_name}_improvement'] = {
-                        'fmax_absolute': float(model_metrics['fmax'] - esm_metrics['fmax']),
-                        'fmax_relative_percent': float((model_metrics['fmax']/esm_metrics['fmax'] - 1)*100),
-                        'micro_auprc_absolute': float(model_metrics['micro_auprc'] - esm_metrics['micro_auprc']),
-                        'macro_auprc_absolute': float(model_metrics['macro_auprc'] - esm_metrics['macro_auprc'])
-                    }
-                    print(f"\n{model_name.upper()} vs ESM:")
-                    print(f"  Fmax: {model_metrics['fmax'] - esm_metrics['fmax']:+.4f} "
-                          f"({(model_metrics['fmax']/esm_metrics['fmax'] - 1)*100:+.2f}%)")
-                    print(f"  Micro-AUPRC: {model_metrics['micro_auprc'] - esm_metrics['micro_auprc']:+.4f}")
+    #         # Compare all models against ESM baseline
+    #         for model_name in ['function', 'concat', 'text', 'cross_attn', 'gated', 'gated_cross']:
+    #             if model_name in results:
+    #                 model_metrics = results[model_name]['test_metrics']
+    #                 comparison[model_name] = model_metrics
+    #                 comparison[f'{model_name}_improvement'] = {
+    #                     'fmax_absolute': float(model_metrics['fmax'] - esm_metrics['fmax']),
+    #                     'fmax_relative_percent': float((model_metrics['fmax']/esm_metrics['fmax'] - 1)*100),
+    #                     'micro_auprc_absolute': float(model_metrics['micro_auprc'] - esm_metrics['micro_auprc']),
+    #                     'macro_auprc_absolute': float(model_metrics['macro_auprc'] - esm_metrics['macro_auprc'])
+    #                 }
+    #                 print(f"\n{model_name.upper()} vs ESM:")
+    #                 print(f"  Fmax: {model_metrics['fmax'] - esm_metrics['fmax']:+.4f} "
+    #                       f"({(model_metrics['fmax']/esm_metrics['fmax'] - 1)*100:+.2f}%)")
+    #                 print(f"  Micro-AUPRC: {model_metrics['micro_auprc'] - esm_metrics['micro_auprc']:+.4f}")
             
-            with open(config.results_dir / "comparison.json", 'w') as f:
-                json.dump(comparison, f, indent=2)
+    #         with open(config.results_dir / "comparison.json", 'w') as f:
+    #             json.dump(comparison, f, indent=2)
+        
+    #     # Also compare fusion models against text-only baseline
+    #     if 'text' in results:
+    #         print("\n" + "="*70)
+    #         print("FUSION MODELS vs TEXT BASELINE")
+    #         print("="*70)
+    #         text_metrics = results['text']['test_metrics']
+            
+    #         for model_name in ['cross_attn', 'gated', 'gated_cross']:
+    #             if model_name in results:
+    #                 model_metrics = results[model_name]['test_metrics']
+    #                 improvement = model_metrics['fmax'] - text_metrics['fmax']
+    #                 improvement_pct = (model_metrics['fmax']/text_metrics['fmax'] - 1) * 100
+    #                 print(f"\n{model_name.upper()} vs TEXT:")
+    #                 print(f"  Fmax: {improvement:+.4f} ({improvement_pct:+.2f}%)")
+    #                 print(f"  Micro-AUPRC: {model_metrics['micro_auprc'] - text_metrics['micro_auprc']:+.4f}")
     
     print("\n✓ Training complete!")
     print(f"Results saved to: {config.results_dir}")

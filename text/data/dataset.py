@@ -125,3 +125,60 @@ def function_collate_fn(batch):
         'embeddings': embeddings,  # [batch_size, seq_len, hidden_dim]
         'labels': labels
     }
+
+
+
+
+
+
+class MultiModalDataset(Dataset):
+    """Dataset for both text and ESM embeddings."""
+    
+    def __init__(self, proteins, labels, cache_dir):
+        self.proteins = proteins
+        self.labels = torch.FloatTensor(labels)
+        self.cache_dir = cache_dir
+    
+    def __len__(self):
+        return len(self.proteins)
+    
+    def __getitem__(self, idx):
+        protein_id = self.proteins[idx]
+        
+        # Load text embeddings
+        field_embeddings = load_embedding(self.cache_dir, protein_id, 'text')
+        if field_embeddings is None:
+            raise ValueError(f"No text embedding for {protein_id}")
+        hidden_states = [emb.float() for emb in field_embeddings]
+        
+        # Load ESM embedding
+        esm_embedding = load_embedding(self.cache_dir, protein_id, 'esm')
+        if esm_embedding is None:
+            raise ValueError(f"No ESM embedding for {protein_id}")
+        
+        return {
+            'hidden_states': hidden_states,
+            'esm_embedding': esm_embedding.float(),
+            'labels': self.labels[idx]
+        }
+
+
+def multimodal_collate_fn(batch):
+    """Collate function for multi-modal data."""
+    labels = torch.stack([b['labels'] for b in batch])
+    num_fields = len(batch[0]['hidden_states'])
+    
+    # Collate text fields
+    all_hidden_states = []
+    for field_idx in range(num_fields):
+        field_hidden = torch.stack([b['hidden_states'][field_idx].squeeze(0) for b in batch])
+        all_hidden_states.append(field_hidden)
+    
+    # Collate ESM embeddings
+    esm_embeddings = torch.stack([b['esm_embedding'] for b in batch])
+    
+    return {
+        'hidden_states': all_hidden_states,
+        'esm_embeddings': esm_embeddings,
+        'labels': labels
+    }

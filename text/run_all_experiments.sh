@@ -6,17 +6,21 @@ for aspect in BP MF CC; do
     for threshold in 30 50 70 95; do
         echo "Running: Aspect=$aspect, Threshold=$threshold"
         
-        # # Run ESM baseline
+        # # # Run ESM baseline
         # python train.py --aspect $aspect --threshold $threshold --model esm
         
-        # # Run Function-only model
+        # # # Run Function-only model
         # python train.py --aspect $aspect --threshold $threshold --model function
         
-        # Run Concat baseline
-        python train.py --aspect $aspect --threshold $threshold --model concat
+        # # Run Concat baseline
+        # python train.py --aspect $aspect --threshold $threshold --model concat
         
-        # Run Text fusion model
+        # # Run Text fusion model
         # python train.py --aspect $aspect --threshold $threshold --model text
+
+        # Run Gated fusion model
+        python train.py --aspect $aspect --threshold $threshold --model gated
+
     done
 done
 
