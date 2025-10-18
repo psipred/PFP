@@ -32,7 +32,6 @@ Thumbs.db
 # Ignore project data, configuration, and output artifacts
 Data/
 Download
-models/
 outputs/
 runs/
 settings.py
