@@ -182,3 +182,62 @@ def multimodal_collate_fn(batch):
         'esm_embeddings': esm_embeddings,
         'labels': labels
     }
+
+
+
+class ESMRawDataset(Dataset):
+    """Dataset that tokenizes sequences on-the-fly."""
+    
+    def __init__(self, proteins, labels, sequences_dict, esm_model_name="facebook/esm2_t33_650M_UR50D"):
+        self.proteins = proteins
+        self.labels = torch.FloatTensor(labels)
+        self.sequences_dict = sequences_dict
+        from transformers import EsmTokenizer
+        self.tokenizer = EsmTokenizer.from_pretrained(esm_model_name)
+    
+    def __len__(self):
+        return len(self.proteins)
+    
+    def __getitem__(self, idx):
+        protein_id = self.proteins[idx]
+        sequence = self.sequences_dict[protein_id]
+        
+        # Tokenize sequence
+        encoded = self.tokenizer(
+            sequence,
+            truncation=True,
+            max_length=1024,
+            return_tensors='pt'
+        )
+        
+        return {
+            'input_ids': encoded['input_ids'].squeeze(0),
+            'attention_mask': encoded['attention_mask'].squeeze(0),
+            'labels': self.labels[idx]
+        }
+
+
+def esm_raw_collate_fn(batch):
+    """Collate function with padding for variable-length sequences."""
+    from torch.nn.utils.rnn import pad_sequence
+    
+    # Pad sequences to same length
+    input_ids = pad_sequence(
+        [b['input_ids'] for b in batch],
+        batch_first=True,
+        padding_value=1  # ESM pad token
+    )
+    
+    attention_mask = pad_sequence(
+        [b['attention_mask'] for b in batch],
+        batch_first=True,
+        padding_value=0
+    )
+    
+    labels = torch.stack([b['labels'] for b in batch])
+    
+    return {
+        'input_ids': input_ids,
+        'attention_mask': attention_mask,
+        'labels': labels
+    }

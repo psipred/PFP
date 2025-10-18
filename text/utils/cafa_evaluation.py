@@ -133,7 +133,7 @@ def evaluate_with_cafa(model, loader, device, protein_ids, go_terms,
         go_terms: list of GO term IDs
         obo_file: path to GO obo file
         output_dir: directory to save results
-        model_type: 'text', 'concat', 'esm', 'function', 'cross_attn', 'gated', 'gated_cross'
+        model_type: 'text', 'concat', 'esm', 'function', 'cross_attn', 'gated', 'gated_cross', 'esm_seq'
         model_name: name for the prediction file
     
     Returns:
@@ -160,7 +160,13 @@ def evaluate_with_cafa(model, loader, device, protein_ids, go_terms,
     with torch.no_grad():
         for batch in tqdm(loader, desc="Predicting"):
             # Handle different model types
-            if model_type in ['cross_attn', 'gated', 'gated_cross']:
+            if model_type == 'esm_seq':
+                # NEW: ESM sequence branch model
+                logits = model(
+                    input_ids=batch['input_ids'].to(device),
+                    attention_mask=batch['attention_mask'].to(device)
+                )
+            elif model_type in ['cross_attn', 'gated', 'gated_cross']:
                 # Multi-modal models need both text and ESM
                 text_inputs = [h.to(device) for h in batch['hidden_states']]
                 esm_inputs = batch['esm_embeddings'].to(device)
@@ -170,7 +176,7 @@ def evaluate_with_cafa(model, loader, device, protein_ids, go_terms,
                 inputs = [h.to(device) for h in batch['hidden_states']]
                 logits = model(inputs)
             else:  # esm or function
-                # ESM or function-only models
+                # ESM or function-only models (original precomputed embeddings)
                 inputs = batch['embeddings'].to(device)
                 logits = model(inputs)
             

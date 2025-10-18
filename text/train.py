@@ -24,6 +24,8 @@ from models.cross_attention_model import CrossModalAttentionFusion
 from models.gated_fusion_model import GatedFusionModel
 from models.gated_cross_attention_model import GatedCrossAttentionFusion
 from data.dataset import MultiModalDataset, multimodal_collate_fn
+from models.esm_sequence_branch import ESMSequenceBranch
+from data.dataset import ESMRawDataset, esm_raw_collate_fn
 
 class EarlyStopping:
     """Early stopping to stop training when validation metric doesn't improve."""
@@ -67,7 +69,15 @@ def train_epoch(model, loader, optimizer, criterion, device, model_type='text'):
     total_loss = 0
     
     for batch in tqdm(loader, desc="Training", leave=False):
-        if model_type in ['cross_attn', 'gated', 'gated_cross']:
+
+
+        if model_type == 'esm_seq':
+            # NEW: Pass input_ids and attention_mask directly
+            logits = model(
+                input_ids=batch['input_ids'].to(device),
+                attention_mask=batch['attention_mask'].to(device)
+            )
+        elif model_type in ['cross_attn', 'gated', 'gated_cross']:
             # Multi-modal models
             text_inputs = [h.to(device) for h in batch['hidden_states']]
             esm_inputs = batch['esm_embeddings'].to(device)
@@ -101,7 +111,15 @@ def evaluate(model, loader, criterion, device, model_type='text'):
     
     with torch.no_grad():
         for batch in tqdm(loader, desc="Evaluating", leave=False):
-            if model_type in ['cross_attn', 'gated', 'gated_cross']:
+
+
+            if model_type == 'esm_seq':
+                # NEW: Pass input_ids and attention_mask directly
+                logits = model(
+                    input_ids=batch['input_ids'].to(device),
+                    attention_mask=batch['attention_mask'].to(device)
+                )
+            elif model_type in ['cross_attn', 'gated', 'gated_cross']:
                 text_inputs = [h.to(device) for h in batch['hidden_states']]
                 esm_inputs = batch['esm_embeddings'].to(device)
                 logits = model(text_inputs, esm_inputs)
@@ -132,16 +150,44 @@ def evaluate(model, loader, criterion, device, model_type='text'):
     return total_loss / len(loader), fmax, threshold, precision, recall, micro_auprc, macro_auprc
 
 
-def train_model(config, data_dict, model_type='text'):
+def train_model(config, data_dict, model_type='text', sequences_dict=None):
     """
     Train a model with early stopping.
     Supports: text, concat, esm, function, cross_attn, gated, gated_cross
     """
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"\nTraining {model_type.upper()} model on {device}")
+
+
+
+        # Create datasets
+    if model_type == 'esm_seq':
+        # NEW: Use raw sequences instead of precomputed embeddings
+        if sequences_dict is None:
+            raise ValueError("sequences_dict required for esm_seq model")
+        
+        train_dataset = ESMRawDataset(
+            data_dict['train'][0], 
+            data_dict['train'][1], 
+            sequences_dict,
+            config.esm_model
+        )
+        val_dataset = ESMRawDataset(
+            data_dict['val'][0], 
+            data_dict['val'][1], 
+            sequences_dict,
+            config.esm_model
+        )
+        test_dataset = ESMRawDataset(
+            data_dict['test'][0], 
+            data_dict['test'][1], 
+            sequences_dict,
+            config.esm_model
+        )
+        collate_fn = esm_raw_collate_fn
     
     # Create datasets
-    if model_type in ['cross_attn', 'gated', 'gated_cross']:
+    elif model_type in ['cross_attn', 'gated', 'gated_cross']:
         # Multi-modal models need both text and ESM
         train_dataset = MultiModalDataset(data_dict['train'][0], data_dict['train'][1], config.cache_dir)
         val_dataset = MultiModalDataset(data_dict['val'][0], data_dict['val'][1], config.cache_dir)
@@ -179,7 +225,9 @@ def train_model(config, data_dict, model_type='text'):
     
     # Create model
     num_go_terms = data_dict['num_go_terms']
-    if model_type == 'text':
+    if model_type == 'esm_seq':
+        model = ESMSequenceBranch(num_go_terms, config.esm_model).to(device)
+    elif model_type == 'text':
         model = TextFusionModel(num_go_terms).to(device)
     elif model_type == 'concat':
         model = ConcatModel(num_go_terms).to(device)
@@ -323,14 +371,13 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser()
-    parser.add_argument("--threshold", type=int, default=30, help="Similarity threshold (30/50/70/95)")
-    parser.add_argument("--aspect", type=str, default='BP', choices=['BP', 'MF', 'CC'], help="GO aspect")
+    parser.add_argument("--threshold", type=int, default=30)
+    parser.add_argument("--aspect", type=str, default='BP', choices=['BP', 'MF', 'CC'])
     parser.add_argument("--model", type=str, default='both', 
                        choices=['text', 'concat', 'esm', 'function', 
-                               'cross_attn', 'gated', 'gated_cross', 'both', 'all'], 
-                       help="Which model to train")
-    parser.add_argument("--debug", action="store_true", help="Debug mode (small dataset)")
-    
+                               'cross_attn', 'gated', 'gated_cross', 
+                               'esm_seq', 'both', 'all'])  # Added 'esm_seq'
+    parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
     
     # Setup config
@@ -344,10 +391,31 @@ def main():
     
     # Load data
     data_dict = load_data(config)
+
+
+    # Load sequences for esm_seq model
+    sequences_dict = None
+    if args.model in ['esm_seq', 'all']:
+        print("\nLoading protein sequences...")
+        protad_df = pd.read_csv(config.protad_path, sep='\t')
+        sequences_dict = protad_df.set_index('Entry')['Sequence'].to_dict()
+    
     
     # Train models
     results = {}
     
+
+
+        # NEW: Train ESM sequence branch model
+    if args.model in ['esm_seq', 'all']:
+        print("\n" + "="*70)
+        print("ESM SEQUENCE BRANCH MODEL")
+        print("="*70)
+        results['esm_seq'] = train_model(
+            config, data_dict, 
+            model_type='esm_seq',
+            sequences_dict=sequences_dict
+        )
     if args.model in ['esm', 'both', 'all']:
         print("\n" + "="*70)
         print("ESM BASELINE")
