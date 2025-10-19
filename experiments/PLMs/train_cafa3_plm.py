@@ -94,7 +94,7 @@ def compute_auprc(y_true, y_pred):
     return micro_auprc, macro_auprc
 
 
-def train_epoch(model, loader, optimizer, criterion, device):
+def train_epoch(model, loader, optimizer, criterion, device, use_multi_gpu=False):
     """Train for one epoch."""
     model.train()
     total_loss = 0
@@ -116,7 +116,7 @@ def train_epoch(model, loader, optimizer, criterion, device):
     return total_loss / len(loader)
 
 
-def evaluate(model, loader, criterion, device):
+def evaluate(model, loader, criterion, device, use_multi_gpu=False):
     """Evaluate model."""
     model.eval()
     total_loss = 0
@@ -147,8 +147,24 @@ def evaluate(model, loader, criterion, device):
 
 def train_model(config):
     """Main training function."""
-    device = config.device
-    print(f"\nTraining {config.plm_type.upper()} model for {config.aspect} on {device}")
+    # Check GPU availability
+    if not torch.cuda.is_available():
+        device = 'cpu'
+        use_multi_gpu = False
+        print("\nWARNING: No GPU available, using CPU")
+    else:
+        n_gpus = torch.cuda.device_count()
+        device = 'cuda'
+        use_multi_gpu = n_gpus > 1
+        
+        if use_multi_gpu:
+            print(f"\nUsing {n_gpus} GPUs with DataParallel")
+            for i in range(n_gpus):
+                print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
+        else:
+            print(f"\nUsing single GPU: {torch.cuda.get_device_name(0)}")
+    
+    print(f"Training {config.plm_type.upper()} model for {config.aspect}")
     
     # Load datasets
     train_dataset = CAFA3PLMDataset(
@@ -164,19 +180,26 @@ def train_model(config):
         config.aspect, 'test', config.plm_type
     )
     
+    # Adjust batch size for multi-GPU
+    effective_batch_size = config.batch_size
+    if use_multi_gpu:
+        # Each GPU gets batch_size // n_gpus samples
+        effective_batch_size = config.batch_size * n_gpus
+        print(f"Effective batch size: {effective_batch_size} ({config.batch_size} per GPU)")
+    
     # Create dataloaders
     train_loader = DataLoader(
-        train_dataset, batch_size=config.batch_size, 
+        train_dataset, batch_size=effective_batch_size, 
         shuffle=True, collate_fn=collate_fn, 
         num_workers=4, pin_memory=True
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=config.batch_size,
+        val_dataset, batch_size=effective_batch_size,
         shuffle=False, collate_fn=collate_fn,
         num_workers=2, pin_memory=True
     )
     test_loader = DataLoader(
-        test_dataset, batch_size=config.batch_size,
+        test_dataset, batch_size=effective_batch_size,
         shuffle=False, collate_fn=collate_fn,
         num_workers=2, pin_memory=True
     )
@@ -189,9 +212,18 @@ def train_model(config):
     model = PLMClassifier(
         num_go_terms=num_go_terms,
         embedding_dim=config.embedding_dim
-    ).to(device)
+    )
     
-    print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+    # Wrap with DataParallel if using multiple GPUs
+    if use_multi_gpu:
+        model = nn.DataParallel(model)
+        print(f"Model wrapped with DataParallel across {n_gpus} GPUs")
+    
+    model = model.to(device)
+    
+    # Count parameters
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"Model parameters: {n_params:,}")
     
     # Training setup
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
@@ -209,9 +241,9 @@ def train_model(config):
     
     print("\nStarting training...")
     for epoch in range(config.num_epochs):
-        train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
+        train_loss = train_epoch(model, train_loader, optimizer, criterion, device, use_multi_gpu)
         val_loss, val_fmax, val_threshold, val_prec, val_recall, val_micro_auprc, val_macro_auprc = evaluate(
-            model, val_loader, criterion, device
+            model, val_loader, criterion, device, use_multi_gpu
         )
         
         print(f"\nEpoch {epoch+1}/{config.num_epochs}")
@@ -237,7 +269,10 @@ def train_model(config):
             best_val_fmax = val_fmax
             best_threshold = val_threshold
             best_epoch = epoch + 1
-            torch.save(model.state_dict(), config.checkpoint_dir / "best_model.pt")
+            
+            # Save model (unwrap DataParallel if needed)
+            model_to_save = model.module if use_multi_gpu else model
+            torch.save(model_to_save.state_dict(), config.checkpoint_dir / "best_model.pt")
             print(f"  ✓ New best: {best_val_fmax:.4f}")
         
         # Early stopping
@@ -251,9 +286,14 @@ def train_model(config):
     print("TEST EVALUATION")
     print("="*70)
     
-    model.load_state_dict(torch.load(config.checkpoint_dir / "best_model.pt"))
+    # Load best model
+    if use_multi_gpu:
+        model.module.load_state_dict(torch.load(config.checkpoint_dir / "best_model.pt"))
+    else:
+        model.load_state_dict(torch.load(config.checkpoint_dir / "best_model.pt"))
+    
     test_loss, test_fmax, test_threshold, test_prec, test_recall, test_micro_auprc, test_macro_auprc = evaluate(
-        model, test_loader, criterion, device
+        model, test_loader, criterion, device, use_multi_gpu
     )
     
     print(f"\n{config.plm_type.upper()} Test Results:")
@@ -266,6 +306,8 @@ def train_model(config):
         'plm_type': config.plm_type,
         'aspect': config.aspect,
         'num_go_terms': num_go_terms,
+        'num_gpus': n_gpus if use_multi_gpu else 1,
+        'effective_batch_size': effective_batch_size,
         'test_metrics': {
             'fmax': float(test_fmax),
             'threshold': float(test_threshold),
@@ -303,7 +345,8 @@ def main():
     parser.add_argument('--aspect', type=str, required=True,
                        choices=['BPO', 'CCO', 'MFO'],
                        help='GO aspect')
-    parser.add_argument('--batch-size', type=int, default=16)
+    parser.add_argument('--batch-size', type=int, default=16,
+                       help='Batch size per GPU')
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--epochs', type=int, default=50)
     

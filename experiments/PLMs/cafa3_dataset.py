@@ -7,6 +7,15 @@ from torch.utils.data import Dataset
 from pathlib import Path
 
 
+"""Dataset class for CAFA3 PLM embeddings."""
+
+import torch
+import numpy as np
+import scipy.sparse as ssp
+from torch.utils.data import Dataset
+from pathlib import Path
+
+
 class CAFA3PLMDataset(Dataset):
     """Dataset for CAFA3 with precomputed PLM embeddings."""
     
@@ -49,13 +58,49 @@ class CAFA3PLMDataset(Dataset):
             raise FileNotFoundError(f"Embedding not found: {emb_file}")
         
         # Load embedding data
-        emb_data = np.load(emb_file, allow_pickle=True).item()
+        emb_data = np.load(emb_file, allow_pickle=True)
         
-        # Extract mean-pooled embedding
+        # Handle different formats
+        if isinstance(emb_data, np.ndarray) and emb_data.dtype == object:
+            # It's a 0-d array containing a dict
+            emb_data = emb_data.item()
+        
+        # Extract embedding
         if isinstance(emb_data, dict):
-            embedding = torch.FloatTensor(emb_data['embedding'])
+            # Check if 'embedding' key exists
+            if 'embedding' in emb_data:
+                embedding = emb_data['embedding']
+            else:
+                # Fallback: look for other keys
+                raise ValueError(f"No 'embedding' key found in {emb_file}")
         else:
-            embedding = torch.FloatTensor(emb_data)
+            # It's directly a numpy array
+            embedding = emb_data
+        
+        # Convert to tensor
+        embedding = torch.FloatTensor(embedding)
+        
+        # Handle different shapes
+        if len(embedding.shape) == 2:
+            # It's a 2D per-residue embedding [seq_len, hidden_dim]
+            # Mean pool over sequence dimension
+            embedding = embedding.mean(dim=0)  # [hidden_dim]
+        elif len(embedding.shape) == 1:
+            # Already pooled - good!
+            pass
+        else:
+            raise ValueError(f"Unexpected embedding shape for {protein_id}: {embedding.shape}")
+        
+        # Verify final shape based on PLM type
+        expected_dim = {
+            'esm': 1280,
+            'prott5': 1024,
+            'prostt5': 1024
+        }[self.plm_type]
+        
+        if embedding.shape[0] != expected_dim:
+            raise ValueError(f"Expected embedding dim {expected_dim} for {self.plm_type}, "
+                           f"got {embedding.shape[0]} for {protein_id}")
         
         return {
             'embedding': embedding,
