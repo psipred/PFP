@@ -10,6 +10,8 @@ class Config:
     """Training and model configuration."""
     
     # Paths
+    # benchmark_base: Path = Path("../benchmark/go_annotations/benchmarks")
+    # protad_path: Path = Path("../benchmark/protad.tsv")
     benchmark_base: Path = Path("/home/zijianzhou/Datasets/protad/go_annotations/benchmarks")
     protad_path: Path = Path("/home/zijianzhou/Datasets/protad/protad.tsv")
     output_dir: Path = Path("./experiments")
