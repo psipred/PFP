@@ -10,8 +10,10 @@ class Config:
     """Training and model configuration."""
     
     # Paths
-    benchmark_base: Path = Path("/home/zijianzhou/Datasets/protad/go_annotations/benchmarks")
-    protad_path: Path = Path("/home/zijianzhou/Datasets/protad/protad.tsv")
+    benchmark_base: Path = Path("../benchmark/go_annotations/benchmarks")
+    protad_path: Path = Path("../benchmark/protad.tsv")
+    # benchmark_base: Path = Path("/home/zijianzhou/Datasets/protad/go_annotations/benchmarks")
+    # protad_path: Path = Path("/home/zijianzhou/Datasets/protad/protad.tsv")
     output_dir: Path = Path("./experiments")
     cache_dir: Path = Path("./embedding_cache")
     
@@ -20,7 +22,7 @@ class Config:
     esm_model: str = "facebook/esm2_t33_650M_UR50D"
     
     # Training hyperparameters
-    batch_size: int = 16
+    batch_size: int = 128
     learning_rate: float = 1e-4
     num_epochs: int = 50
     max_text_length: int = 512
