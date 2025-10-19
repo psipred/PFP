@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from dataclasses import dataclass
+import os
 
 
 @dataclass
@@ -35,7 +36,8 @@ class Config:
     
     # Text fields from ProtAD
     text_fields: list = None
-    
+    device_mode: str = os.getenv('DEVICE_MODE', 'auto')  # 'auto', 'single', 'multi'
+
     def __post_init__(self):
         if self.text_fields is None:
             self.text_fields = [
@@ -45,7 +47,7 @@ class Config:
                 'Biotechnological use', 'Pharmaceutical use', 'Involvement in disease',
                 'Subcellular location', 'Post-translational modification', 'Sequence similarities'
             ]
-        
+        self.setup_devices()
         # Setup paths
         self.split_dir = self.benchmark_base / f"similarity_{self.similarity_threshold}" / self.aspect
         exp_dir = self.output_dir / f"sim_{self.similarity_threshold}" / self.aspect
@@ -62,3 +64,35 @@ class Config:
             self.num_epochs = 2
             self.batch_size = 16
             self.early_stopping_patience = 2
+
+
+    def setup_devices(self):
+        """Auto-detect and configure available GPUs."""
+        import torch
+        
+        if not torch.cuda.is_available():
+            self.device = 'cpu'
+            self.n_gpus = 0
+            return
+        
+        self.n_gpus = torch.cuda.device_count()
+        
+        if self.device_mode == 'single' or self.n_gpus == 1:
+            # Use single GPU (your 4070ti)
+            self.device = 'cuda:0'
+            self.use_ddp = False
+            print(f"Using single GPU: {torch.cuda.get_device_name(0)}")
+        
+        elif self.device_mode == 'multi' and self.n_gpus > 1:
+            # Use DataParallel for multi-GPU (your 6x 1080ti node)
+            self.device = 'cuda'
+            self.use_ddp = True
+            print(f"Using {self.n_gpus} GPUs with DataParallel")
+            for i in range(self.n_gpus):
+                print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
+        
+        else:
+            # Auto mode
+            self.device = 'cuda:0' if self.n_gpus == 1 else 'cuda'
+            self.use_ddp = self.n_gpus > 1
+            print(f"Auto-detected {self.n_gpus} GPU(s)")

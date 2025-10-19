@@ -155,7 +155,7 @@ def train_model(config, data_dict, model_type='text', sequences_dict=None):
     Train a model with early stopping.
     Supports: text, concat, esm, function, cross_attn, gated, gated_cross
     """
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = config.device
     print(f"\nTraining {model_type.upper()} model on {device}")
 
 
@@ -226,24 +226,35 @@ def train_model(config, data_dict, model_type='text', sequences_dict=None):
     # Create model
     num_go_terms = data_dict['num_go_terms']
     if model_type == 'esm_seq':
-        model = ESMSequenceBranch(num_go_terms, config.esm_model).to(device)
+        model = ESMSequenceBranch(num_go_terms, config.esm_model)
     elif model_type == 'text':
-        model = TextFusionModel(num_go_terms).to(device)
+        model = TextFusionModel(num_go_terms)
     elif model_type == 'concat':
-        model = ConcatModel(num_go_terms).to(device)
+        model = ConcatModel(num_go_terms)
     elif model_type == 'function':
-        model = SimpleFunctionModel(num_go_terms).to(device)
+        model = SimpleFunctionModel(num_go_terms)
     elif model_type == 'esm':
-        model = ESMClassifier(num_go_terms).to(device)
+        model = ESMClassifier(num_go_terms)
     elif model_type == 'cross_attn':
-        model = CrossModalAttentionFusion(num_go_terms).to(device)
+        model = CrossModalAttentionFusion(num_go_terms)
     elif model_type == 'gated':
-        model = GatedFusionModel(num_go_terms).to(device)
+        model = GatedFusionModel(num_go_terms)
     elif model_type == 'gated_cross':
-        model = GatedCrossAttentionFusion(num_go_terms).to(device)
-    
+        model = GatedCrossAttentionFusion(num_go_terms)
+
+
+
+
+    if config.use_ddp:
+        model = torch.nn.DataParallel(model)
+
+
+    model = model.to(device)
+
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
-    
+    if config.use_ddp:
+        print(f"Using DataParallel across {config.n_gpus} GPUs")
+
     # Training setup
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
     criterion = nn.BCEWithLogitsLoss()
