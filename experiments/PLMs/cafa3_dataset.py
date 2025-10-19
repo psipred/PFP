@@ -1,38 +1,32 @@
-"""Dataset class for CAFA3 PLM embeddings."""
+"""Dataset class for CAFA3 PLM embeddings with caching."""
 
 import torch
 import numpy as np
 import scipy.sparse as ssp
 from torch.utils.data import Dataset
 from pathlib import Path
-
-
-"""Dataset class for CAFA3 PLM embeddings."""
-
-import torch
-import numpy as np
-import scipy.sparse as ssp
-from torch.utils.data import Dataset
-from pathlib import Path
+from tqdm import tqdm
 
 
 class CAFA3PLMDataset(Dataset):
-    """Dataset for CAFA3 with precomputed PLM embeddings."""
+    """Dataset for CAFA3 with precomputed PLM embeddings and in-memory caching."""
     
-    def __init__(self, data_dir, embedding_dir, aspect, split, plm_type='esm'):
+    def __init__(self, data_dir, embedding_dir, aspect, split, plm_type='esm', cache_embeddings=True):
         """
         Args:
             data_dir: Directory with CAFA3 data files
             embedding_dir: Directory with PLM embeddings
             aspect: 'BPO', 'CCO', or 'MFO'
             split: 'train', 'valid', or 'test'
-            plm_type: 'esm', 'prott5', or 'prostt5'
+            plm_type: 'esm', 'prott5', 'prostt5', 'ankh'
+            cache_embeddings: If True, load all embeddings into memory at initialization
         """
         self.data_dir = Path(data_dir)
         self.embedding_dir = Path(embedding_dir) / plm_type
         self.aspect = aspect
         self.split = split
         self.plm_type = plm_type
+        self.cache_embeddings = cache_embeddings
         
         # Load protein names
         names_file = self.data_dir / f"{aspect}_{split}_names.npy"
@@ -44,6 +38,54 @@ class CAFA3PLMDataset(Dataset):
         self.labels = torch.FloatTensor(labels_sparse.toarray())
         
         print(f"Loaded {len(self.protein_ids)} proteins for {aspect} {split}")
+        
+        # Expected embedding dimension
+        self.expected_dim = {
+            'esm': 1280,
+            'prott5': 1024,
+            'prostt5': 1024,
+            'ankh': 768
+        }[self.plm_type]
+        
+        # Cache embeddings in memory if requested
+        self.embedding_cache = {}
+        if cache_embeddings:
+            print(f"Caching {len(self.protein_ids)} embeddings in memory...")
+            self._cache_all_embeddings()
+    
+    def _cache_all_embeddings(self):
+        """Load all embeddings into memory."""
+        missing_embeddings = []
+        
+        for idx, protein_id in enumerate(tqdm(self.protein_ids, desc="Loading embeddings")):
+            emb_file = self.embedding_dir / f"{protein_id}.npy"
+            
+            if not emb_file.exists():
+                missing_embeddings.append(protein_id)
+                continue
+            
+            try:
+                # Load embedding - now it's just a simple numpy array
+                embedding = np.load(emb_file)
+                
+                # Convert to tensor
+                embedding = torch.FloatTensor(embedding)
+                
+                # Verify shape
+                if embedding.shape[0] != self.expected_dim:
+                    raise ValueError(f"Expected dim {self.expected_dim}, got {embedding.shape[0]} for {protein_id}")
+                
+                self.embedding_cache[idx] = embedding
+                
+            except Exception as e:
+                print(f"Error loading {protein_id}: {e}")
+                missing_embeddings.append(protein_id)
+        
+        if missing_embeddings:
+            print(f"WARNING: {len(missing_embeddings)} embeddings not found")
+            print(f"First few missing: {missing_embeddings[:5]}")
+        
+        print(f"Successfully cached {len(self.embedding_cache)}/{len(self.protein_ids)} embeddings")
     
     def __len__(self):
         return len(self.protein_ids)
@@ -51,62 +93,33 @@ class CAFA3PLMDataset(Dataset):
     def __getitem__(self, idx):
         protein_id = self.protein_ids[idx]
         
-        # Load embedding
-        emb_file = self.embedding_dir / f"{protein_id}.npy"
-        
-        if not emb_file.exists():
-            raise FileNotFoundError(f"Embedding not found: {emb_file}")
-        
-        # Load embedding data
-        emb_data = np.load(emb_file, allow_pickle=True)
-        
-        # Handle different formats
-        if isinstance(emb_data, np.ndarray) and emb_data.dtype == object:
-            # It's a 0-d array containing a dict
-            emb_data = emb_data.item()
-        
-        # Extract embedding
-        if isinstance(emb_data, dict):
-            # Check if 'embedding' key exists
-            if 'embedding' in emb_data:
-                embedding = emb_data['embedding']
-            else:
-                # Fallback: look for other keys
-                raise ValueError(f"No 'embedding' key found in {emb_file}")
+        # Get embedding from cache or load from disk
+        if self.cache_embeddings:
+            if idx not in self.embedding_cache:
+                raise RuntimeError(f"Embedding for {protein_id} not in cache")
+            embedding = self.embedding_cache[idx]
         else:
-            # It's directly a numpy array
-            embedding = emb_data
-        
-        # Convert to tensor
-        embedding = torch.FloatTensor(embedding)
-        
-        # Handle different shapes
-        if len(embedding.shape) == 2:
-            # It's a 2D per-residue embedding [seq_len, hidden_dim]
-            # Mean pool over sequence dimension
-            embedding = embedding.mean(dim=0)  # [hidden_dim]
-        elif len(embedding.shape) == 1:
-            # Already pooled - good!
-            pass
-        else:
-            raise ValueError(f"Unexpected embedding shape for {protein_id}: {embedding.shape}")
-        
-        # Verify final shape based on PLM type
-        expected_dim = {
-            'esm': 1280,
-            'prott5': 1024,
-            'prostt5': 1024
-        }[self.plm_type]
-        
-        if embedding.shape[0] != expected_dim:
-            raise ValueError(f"Expected embedding dim {expected_dim} for {self.plm_type}, "
-                           f"got {embedding.shape[0]} for {protein_id}")
+            # Load from disk (slower)
+            emb_file = self.embedding_dir / f"{protein_id}.npy"
+            if not emb_file.exists():
+                raise FileNotFoundError(f"Embedding not found: {emb_file}")
+            
+            embedding = torch.FloatTensor(np.load(emb_file))
+            
+            # Verify shape
+            if embedding.shape[0] != self.expected_dim:
+                raise ValueError(f"Expected dim {self.expected_dim}, got {embedding.shape[0]} for {protein_id}")
         
         return {
             'embedding': embedding,
             'labels': self.labels[idx],
             'protein_id': protein_id
         }
+    
+    def clear_cache(self):
+        """Clear embedding cache to free memory."""
+        self.embedding_cache.clear()
+        print(f"Cleared embedding cache for {self.aspect} {self.split}")
 
 
 def collate_fn(batch):

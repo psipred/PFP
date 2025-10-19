@@ -5,17 +5,18 @@ from dataclasses import dataclass
 import torch
 
 
+
 @dataclass
 class CAFA3Config:
     """Training configuration for CAFA3 experiments."""
     
     # Paths
-    data_dir: Path = Path("/SAN/bioinf/PFP/PFP/experiments/cafa3_integration/data")
-    embedding_dir: Path = Path("/SAN/bioinf/PFP/embeddings/cafa3")
-    output_dir: Path = Path("/SAN/bioinf/PFP/PFP/experiments/cafa3_integration/plm_results")
-    
+    data_dir: Path = Path("./data")
+    embedding_dir: Path = Path("./embedding_cache")
+    output_dir: Path = Path("./plm_results")
+
     # Model settings
-    plm_type: str = "esm"  # 'esm', 'prott5', 'prostt5'
+    plm_type: str = "esm"  # 'esm', 'prott5', 'prostt5', 'ankh'
     
     # Training hyperparameters
     batch_size: int = 16
@@ -46,6 +47,7 @@ class CAFA3Config:
         self.embedding_dims = {
             'esm': 1280,
             'prott5': 1024,
-            'prostt5': 1024
+            'prostt5': 1024,
+            'ankh': 768  # Ankh-base
         }
         self.embedding_dim = self.embedding_dims[self.plm_type]

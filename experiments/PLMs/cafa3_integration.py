@@ -19,9 +19,10 @@ from tqdm import tqdm
 import json
 import scipy.sparse as ssp
 import re
+from torch.cuda.amp import autocast
 
 # Add project root to path
-sys.path.append('/SAN/bioinf/PFP/PFP')
+# sys.path.append('/SAN/bioinf/PFP/PFP')
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,8 +32,8 @@ class CAFA3DatasetPreparer:
     """Prepare CAFA3 dataset for PLM-based GO prediction."""
     
     def __init__(self, 
-                 cafa3_dir: str = "/SAN/bioinf/PFP/dataset/zenodo",
-                 output_dir: str = "/SAN/bioinf/PFP/PFP/experiments/cafa3_integration/data",
+                 cafa3_dir: str = "/home/zijianzhou/Datasets/cafa3",
+                 output_dir: str = "./data",
                  small_subset: bool = False):
         
         self.cafa3_dir = Path(cafa3_dir)
@@ -206,13 +207,13 @@ class CAFA3DatasetPreparer:
 
 
 class ESMEmbeddingGenerator:
-    """Generate ESM embeddings for CAFA3 proteins."""
+    """Generate ESM embeddings for CAFA3 proteins - protein-level only."""
     
     def __init__(self, 
                  data_dir: str,
                  output_dir: str,
                  model_name: str = "facebook/esm2_t33_650M_UR50D",
-                 batch_size: int = 4):
+                 batch_size: int = 64):
         
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
@@ -269,27 +270,37 @@ class ESMEmbeddingGenerator:
                         # Generate embeddings
                         with torch.no_grad():
                             outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-                            embeddings = outputs.last_hidden_state
+                            embeddings = outputs.last_hidden_state  # [batch, seq_len, 1280]
                             
                         # Save each embedding
                         for idx, pid in enumerate(batch_ids):
                             seq_len = len(batch_seqs[idx])
-                            # Mean pooling (exclude special tokens)
-                            emb = embeddings[idx, 1:seq_len+1].mean(dim=0).cpu().numpy()
                             
-                            np.save(
-                                self.output_dir / f"{pid}.npy",
-                                {"name": pid, "embedding": emb}
-                            )
+                            # Mean pooling (exclude [CLS] at position 0 and [EOS])
+                            # ESM format: [CLS] + sequence + [EOS] + [PAD]...
+                            seq_start = 1
+                            seq_end = min(seq_len + 1, attention_mask[idx].sum().item() - 1)
+                            
+                            # Extract sequence embeddings (exclude special tokens)
+                            seq_emb = embeddings[idx, seq_start:seq_end]  # [actual_seq_len, 1280]
+                            
+                            # Mean pool to get single vector
+                            pooled_emb = seq_emb.mean(dim=0).cpu().numpy()  # [1280]
+                            
+                            # Verify shape
+                            assert pooled_emb.shape == (1280,), f"Expected (1280,), got {pooled_emb.shape}"
+                            
+                            # Save ONLY the pooled embedding as a simple numpy array
+                            # No dict, no extra metadata - just the embedding vector
+                            np.save(self.output_dir / f"{pid}.npy", pooled_emb)
                             
                     except Exception as e:
                         logger.error(f"Error processing batch: {e}")
+                        logger.error(f"Batch IDs: {batch_ids}")
                         
         logger.info("ESM embedding generation completed!")
-
-
 class ProtT5EmbeddingGenerator:
-    """Generate ProtT5 embeddings for CAFA3 proteins."""
+    """Generate ProtT5 embeddings for CAFA3 proteins - protein-level only."""
     
     def __init__(self, 
                  data_dir: str,
@@ -329,10 +340,10 @@ class ProtT5EmbeddingGenerator:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = model.to(device)
         
-        if device.type == 'cpu':
-            model.float()
-        else:
-            model.half()
+        # if device.type == 'cpu':
+        #     model.float()
+        # else:
+        #     model.half()
             
         model.eval()
         
@@ -393,33 +404,24 @@ class ProtT5EmbeddingGenerator:
                             # Get embeddings for sequence
                             seq_embeddings = embeddings[idx, start_idx:end_idx]
                             
-                            # Mean pooling
-                            pooled_embedding = seq_embeddings.mean(dim=0).cpu().numpy()
-                            per_residue_embeddings = seq_embeddings.cpu().numpy()
+                            # Mean pooling to get protein-level embedding
+                            pooled_embedding = seq_embeddings.mean(dim=0).cpu().numpy()  # [1024]
                             
-                            # Save embeddings
-                            embedding_data = {
-                                "name": pid,
-                                "embedding": pooled_embedding,
-                                "per_residue_embedding": per_residue_embeddings,
-                                "sequence_length": seq_len,
-                                "truncated_length": end_idx - start_idx
-                            }
+                            # Verify shape
+                            assert pooled_embedding.shape == (1024,), f"Expected (1024,), got {pooled_embedding.shape}"
                             
-                            np.save(
-                                self.output_dir / f"{pid}.npy",
-                                embedding_data,
-                                allow_pickle=True
-                            )
+                            # Save ONLY the pooled embedding
+                            np.save(self.output_dir / f"{pid}.npy", pooled_embedding)
                             
                     except Exception as e:
                         logger.error(f"Error processing batch starting at index {i}: {e}")
+                        logger.error(f"Batch IDs: {batch_ids}")
                         
         logger.info("ProtT5 embedding generation completed!")
 
 
 class ProstT5EmbeddingGenerator:
-    """Generate ProstT5 embeddings for CAFA3 proteins."""
+    """Generate ProstT5 embeddings for CAFA3 proteins - protein-level only."""
     
     def __init__(self, 
                  data_dir: str,
@@ -469,10 +471,10 @@ class ProstT5EmbeddingGenerator:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = model.to(device)
         
-        if device.type == 'cpu':
-            model.float()
-        else:
-            model.half()
+        # if device.type == 'cpu':
+        #     model.float()
+        # else:
+        #     model.half()
             
         model.eval()
         
@@ -533,38 +535,141 @@ class ProstT5EmbeddingGenerator:
                             # Get embeddings
                             seq_embeddings = embeddings[idx, start_idx:end_idx]
                             
-                            # Mean pooling
-                            pooled_embedding = seq_embeddings.mean(dim=0).cpu().numpy()
-                            per_residue_embeddings = seq_embeddings.cpu().numpy()
+                            # Mean pooling to get protein-level embedding
+                            pooled_embedding = seq_embeddings.mean(dim=0).cpu().numpy()  # [1024]
                             
-                            # Save embeddings
-                            embedding_data = {
-                                "name": pid,
-                                "embedding": pooled_embedding,
-                                "per_residue_embedding": per_residue_embeddings,
-                                "sequence_length": seq_len,
-                                "truncated_length": end_idx - start_idx
-                            }
+                            # Verify shape
+                            assert pooled_embedding.shape == (1024,), f"Expected (1024,), got {pooled_embedding.shape}"
                             
-                            np.save(
-                                self.output_dir / f"{pid}.npy",
-                                embedding_data,
-                                allow_pickle=True
-                            )
+                            # Save ONLY the pooled embedding
+                            np.save(self.output_dir / f"{pid}.npy", pooled_embedding)
                             
                     except Exception as e:
                         logger.error(f"Error processing batch starting at index {i}: {e}")
+                        logger.error(f"Batch IDs: {batch_ids}")
                         
         logger.info("ProstT5 embedding generation completed!")
-
-
+class AnkhEmbeddingGenerator:
+    """Generate Ankh embeddings for CAFA3 proteins - protein-level only."""
+    
+    def __init__(self, 
+                 data_dir: str,
+                 output_dir: str,
+                 model_name: str = "ElnaggarLab/ankh-base",
+                 batch_size: int = 64,
+                 max_length: int = 1024):
+        
+        self.data_dir = Path(data_dir)
+        self.output_dir = Path(output_dir)
+        self.model_name = model_name
+        self.batch_size = batch_size
+        self.max_length = max_length
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+    def generate_embeddings(self):
+        """Generate Ankh embeddings for all proteins."""
+        from transformers import AutoTokenizer, T5EncoderModel
+        
+        logger.info(f"Loading Ankh model: {self.model_name}")
+        
+        # Use AutoTokenizer instead of T5Tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)
+        model = T5EncoderModel.from_pretrained(self.model_name, trust_remote_code=True)
+        
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = model.to(device)
+        
+        # if device.type == 'cpu':
+        #     model.float()
+        # else:
+        #     model.half()
+            
+        model.eval()
+        
+        # Process each aspect and split
+        for aspect in ['BPO', 'CCO', 'MFO']:
+            for split in ['train', 'valid', 'test']:
+                seq_file = self.data_dir / f"{aspect}_{split}_sequences.json"
+                if not seq_file.exists():
+                    continue
+                    
+                with open(seq_file, 'r') as f:
+                    sequences = json.load(f)
+                    
+                logger.info(f"Generating Ankh embeddings for {aspect} {split}: {len(sequences)} proteins")
+                
+                protein_ids = list(sequences.keys())
+                
+                for i in tqdm(range(0, len(protein_ids), self.batch_size), desc=f"{aspect} {split}"):
+                    batch_ids = protein_ids[i:i+self.batch_size]
+                    batch_seqs = [sequences[pid] for pid in batch_ids]
+                    
+                    # Skip if exists
+                    if all((self.output_dir / f"{pid}.npy").exists() for pid in batch_ids):
+                        continue
+                    
+                    try:
+                        # Ankh uses space-separated amino acids like ProtT5
+                        processed_seqs = [" ".join(list(seq)) for seq in batch_seqs]
+                        
+                        # Tokenize
+                        ids = tokenizer.batch_encode_plus(
+                            processed_seqs,
+                            add_special_tokens=True,
+                            padding="longest",
+                            truncation=True,
+                            max_length=self.max_length,
+                            return_tensors='pt'
+                        ).to(device)
+                        
+                        # Generate embeddings
+                        with torch.no_grad():
+                            with autocast(enabled=False): # Disable autocast for Ankh
+                                outputs = model(
+                                    ids.input_ids,
+                                    attention_mask=ids.attention_mask
+                                )
+                                embeddings = outputs.last_hidden_state
+                            
+                        # Extract and save embeddings
+                        for idx, (pid, seq) in enumerate(zip(batch_ids, batch_seqs)):
+                            seq_len = len(seq)
+                            attention_mask_seq = ids.attention_mask[idx]
+                            actual_token_len = attention_mask_seq.sum().item()
+                            
+                            # Skip special tokens (same as ProtT5)
+                            start_idx = 1
+                            end_idx = min(start_idx + seq_len, actual_token_len - 1)
+                            
+                            # Get embeddings for sequence
+                            seq_embeddings = embeddings[idx, start_idx:end_idx]
+                            
+                            # Mean pooling to get protein-level embedding
+                            pooled_embedding = seq_embeddings.mean(dim=0).cpu().numpy()
+                            
+                            # Verify shape (Ankh-base has 768 dimensions)
+                            expected_dim = 768
+                            if pooled_embedding.shape[0] != expected_dim:
+                                logger.warning(f"Expected dim {expected_dim}, got {pooled_embedding.shape[0]} for {pid}")
+                            
+                            # Save ONLY the pooled embedding
+                            np.save(self.output_dir / f"{pid}.npy", pooled_embedding)
+                            
+                    except Exception as e:
+                        logger.error(f"Error processing batch starting at index {i}: {e}")
+                        logger.error(f"Batch IDs: {batch_ids}")
+                        import traceback
+                        traceback.print_exc()
+                        
+        logger.info("Ankh embedding generation completed!")
 def main():
     """Main execution function."""
     import argparse
     
     parser = argparse.ArgumentParser(description="CAFA3 dataset integration")
     parser.add_argument('--action', type=str, required=True,
-                       choices=['prepare', 'esm_embeddings', 'prott5_embeddings', 'prostt5_embeddings'],
+                       choices=['prepare', 'esm_embeddings', 'prott5_embeddings', 
+                               'prostt5_embeddings', 'ankh_embeddings'],
                        help="Action to perform")
     parser.add_argument('--small-subset', action='store_true',
                        help="Use small subset for testing")
@@ -587,16 +692,16 @@ def main():
     elif args.action == 'esm_embeddings':
         # Generate ESM embeddings   
         generator = ESMEmbeddingGenerator(
-            data_dir=f"{base_dir}/data",
-            output_dir="/SAN/bioinf/PFP/embeddings/cafa3/esm"
+            data_dir="./data",
+            output_dir="./embedding_cache/esm"
         )
         generator.generate_embeddings()
         
     elif args.action == 'prott5_embeddings':
         # Generate ProtT5 embeddings
         generator = ProtT5EmbeddingGenerator(
-            data_dir=f"{base_dir}/data",
-            output_dir="/SAN/bioinf/PFP/embeddings/cafa3/prott5",
+            data_dir="./data",
+            output_dir="./embedding_cache/prott5",
             batch_size=4
         )
         generator.generate_embeddings()
@@ -604,12 +709,22 @@ def main():
     elif args.action == 'prostt5_embeddings':
         # Generate ProstT5 embeddings
         generator = ProstT5EmbeddingGenerator(
-            data_dir=f"{base_dir}/data",
-            output_dir="/SAN/bioinf/PFP/embeddings/cafa3/prostt5",
+            data_dir="./data",
+            output_dir="./embedding_cache/prostt5",
             embedding_type='AA',
             batch_size=4
         )
         generator.generate_embeddings()
+        
+    elif args.action == 'ankh_embeddings':
+        # Generate Ankh embeddings
+        generator = AnkhEmbeddingGenerator(
+            data_dir="./data",
+            output_dir="./embedding_cache/ankh",
+            batch_size=16
+        )
+        generator.generate_embeddings()
+
 
 
 if __name__ == "__main__":

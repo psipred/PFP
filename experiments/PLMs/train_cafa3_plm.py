@@ -138,6 +138,8 @@ def evaluate(model, loader, criterion, device, use_multi_gpu=False):
     y_pred = np.vstack(all_preds)
     y_true = np.vstack(all_labels)
     
+
+
     # Compute metrics
     fmax, threshold, precision, recall = compute_fmax(y_true, y_pred)
     micro_auprc, macro_auprc = compute_auprc(y_true, y_pred)
@@ -340,7 +342,7 @@ def main():
     
     parser = argparse.ArgumentParser(description="Train PLM classifier on CAFA3 data")
     parser.add_argument('--plm', type=str, required=True, 
-                       choices=['esm', 'prott5', 'prostt5'],
+                       choices=['esm', 'prott5', 'prostt5', 'ankh'],
                        help='PLM type to use')
     parser.add_argument('--aspect', type=str, required=True,
                        choices=['BPO', 'CCO', 'MFO'],
