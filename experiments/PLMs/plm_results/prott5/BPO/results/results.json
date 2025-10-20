@@ -1,0 +1,30 @@
+{
+  "plm_type": "prott5",
+  "aspect": "BPO",
+  "num_go_terms": 3992,
+  "num_gpus": 6,
+  "effective_batch_size": 96,
+  "test_metrics": {
+    "fmax": 0.5792539001651908,
+    "threshold": 0.5148484848484849,
+    "precision": 0.631720176830804,
+    "recall": 0.5348342903169289,
+    "micro_auprc": 0.48081235202185435,
+    "macro_auprc": 0.15543591486553354,
+    "cafa_fmax": 0.576,
+    "cafa_threshold": 0.56,
+    "cafa_precision": 0.629,
+    "cafa_recall": 0.531,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.585,
+    "cafa_rc_micro": 0.432,
+    "cafa_f_micro": 0.497,
+    "cafa_smin": 19.285
+  },
+  "best_val_fmax": 0.547304310930247,
+  "best_epoch": 50,
+  "total_epochs": 50,
+  "train_size": 47691,
+  "val_size": 5252,
+  "test_size": 2392
+}
