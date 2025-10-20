@@ -306,7 +306,8 @@ def train_model(config):
     print(f"  Micro-AUPRC: {test_micro_auprc:.4f}, Macro-AUPRC: {test_macro_auprc:.4f}")
     
     # ============ NEW: CAFA EVALUATION ============
-    obo_file = Path("/home/zijianzhou/Datasets/protad/go_annotations/go-basic.obo")
+    # obo_file = Path("/home/zijianzhou/Datasets/protad/go_annotations/go-basic.obo")
+    obo_file = Path("/SAN/bioinf/PFP/dataset/zenodo/go-basic.obo")
     cafa_metrics = {}
     
     if obo_file.exists():
