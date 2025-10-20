@@ -10,11 +10,13 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
-
+import sys
+from pathlib import Path
 from cafa3_config import CAFA3Config
 from cafa3_dataset import CAFA3PLMDataset, collate_fn
 from plm_classifier import PLMClassifier
-
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from text.utils.cafa_evaluation import evaluate_with_cafa
 
 class EarlyStopping:
     """Early stopping to prevent overfitting."""
@@ -193,17 +195,17 @@ def train_model(config):
     train_loader = DataLoader(
         train_dataset, batch_size=effective_batch_size, 
         shuffle=True, collate_fn=collate_fn, 
-        num_workers=4, pin_memory=True
+        num_workers=12, pin_memory=True
     )
     val_loader = DataLoader(
         val_dataset, batch_size=effective_batch_size,
         shuffle=False, collate_fn=collate_fn,
-        num_workers=2, pin_memory=True
+        num_workers=12, pin_memory=True
     )
     test_loader = DataLoader(
         test_dataset, batch_size=effective_batch_size,
         shuffle=False, collate_fn=collate_fn,
-        num_workers=2, pin_memory=True
+        num_workers=12, pin_memory=True
     )
     
     # Get number of GO terms
@@ -283,7 +285,7 @@ def train_model(config):
             print(f"Best validation Fmax: {best_val_fmax:.4f} at epoch {best_epoch}")
             break
     
-    # Test evaluation
+    # Test evaluation (keep existing code)
     print("\n" + "="*70)
     print("TEST EVALUATION")
     print("="*70)
@@ -303,7 +305,38 @@ def train_model(config):
     print(f"  Precision: {test_prec:.4f}, Recall: {test_recall:.4f}")
     print(f"  Micro-AUPRC: {test_micro_auprc:.4f}, Macro-AUPRC: {test_macro_auprc:.4f}")
     
-    # Save results
+    # ============ NEW: CAFA EVALUATION ============
+    obo_file = Path("/home/zijianzhou/Datasets/protad/go_annotations/go-basic.obo")
+    cafa_metrics = {}
+    
+    if obo_file.exists():
+        print("\n" + "="*70)
+        print("CAFA-STYLE EVALUATION")
+        print("="*70)
+        
+        # Load GO terms for this aspect
+        go_terms_file = config.data_dir / f"{config.aspect}_go_terms.json"
+        with open(go_terms_file, 'r') as f:
+            go_terms = json.load(f)
+        
+        # Get test protein IDs
+        test_protein_ids = test_dataset.protein_ids.tolist()
+        
+        cafa_metrics = evaluate_with_cafa(
+            model=model,
+            loader=test_loader,
+            device=device,
+            protein_ids=test_protein_ids,
+            go_terms=go_terms,
+            obo_file=obo_file,
+            output_dir=config.results_dir / 'cafa_eval',
+            model_type='plm',  # Specify this is a PLM model
+            model_name=f"{config.plm_type}_{config.aspect}"
+        )
+    else:
+        print(f"\nWarning: OBO file not found at {obo_file}. Skipping CAFA evaluation.")
+    
+    # Save results (update to include CAFA metrics)
     results = {
         'plm_type': config.plm_type,
         'aspect': config.aspect,
@@ -316,7 +349,8 @@ def train_model(config):
             'precision': float(test_prec),
             'recall': float(test_recall),
             'micro_auprc': float(test_micro_auprc),
-            'macro_auprc': float(test_macro_auprc)
+            'macro_auprc': float(test_macro_auprc),
+            **cafa_metrics  # Add CAFA metrics
         },
         'best_val_fmax': float(best_val_fmax),
         'best_epoch': best_epoch,
@@ -344,9 +378,9 @@ def main():
     parser.add_argument('--plm', type=str, required=True, 
                        choices=['esm', 'prott5', 'prostt5', 'ankh'],
                        help='PLM type to use')
-    parser.add_argument('--aspect', type=str, required=True,
+    parser.add_argument('--aspect', type=str, default=None,
                        choices=['BPO', 'CCO', 'MFO'],
-                       help='GO aspect')
+                       help='GO aspect (if not specified, runs all three)')
     parser.add_argument('--batch-size', type=int, default=16,
                        help='Batch size per GPU')
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -354,22 +388,42 @@ def main():
     
     args = parser.parse_args()
     
-    # Setup config
-    config = CAFA3Config(
-        plm_type=args.plm,
-        aspect=args.aspect,
-        batch_size=args.batch_size,
-        learning_rate=args.lr,
-        num_epochs=args.epochs
-    )
+    # Determine which aspects to run
+    aspects = [args.aspect] if args.aspect else ['BPO', 'CCO', 'MFO']
     
     print("="*70)
     print(f"CAFA3 PLM Experiment")
-    print(f"PLM: {args.plm.upper()}, Aspect: {args.aspect}")
+    print(f"PLM: {args.plm.upper()}, Aspects: {', '.join(aspects)}")
     print("="*70)
     
-    # Train model
-    results = train_model(config)
+    # Train model for each aspect
+    all_results = {}
+    for aspect in aspects:
+        print(f"\n{'='*70}")
+        print(f"Training {aspect}")
+        print(f"{'='*70}")
+        
+        config = CAFA3Config(
+            plm_type=args.plm,
+            aspect=aspect,
+            batch_size=args.batch_size,
+            learning_rate=args.lr,
+            num_epochs=args.epochs
+        )
+        
+        results = train_model(config)
+        all_results[aspect] = results
+    
+    # Print summary if multiple aspects
+    if len(aspects) > 1:
+        print("\n" + "="*70)
+        print("SUMMARY - ALL ASPECTS")
+        print("="*70)
+        for aspect, results in all_results.items():
+            print(f"\n{aspect}:")
+            print(f"  Fmax: {results['test_metrics']['fmax']:.4f}")
+            print(f"  Micro-AUPRC: {results['test_metrics']['micro_auprc']:.4f}")
+            print(f"  Macro-AUPRC: {results['test_metrics']['macro_auprc']:.4f}")
     
     print("\n✓ Training complete!")
 

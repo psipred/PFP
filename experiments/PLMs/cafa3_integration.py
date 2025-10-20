@@ -269,8 +269,9 @@ class ESMEmbeddingGenerator:
                         
                         # Generate embeddings
                         with torch.no_grad():
-                            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-                            embeddings = outputs.last_hidden_state  # [batch, seq_len, 1280]
+                            with autocast(enabled=False):
+                                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+                                embeddings = outputs.last_hidden_state  # [batch, seq_len, 1280]
                             
                         # Save each embedding
                         for idx, pid in enumerate(batch_ids):
@@ -306,7 +307,7 @@ class ProtT5EmbeddingGenerator:
                  data_dir: str,
                  output_dir: str,
                  model_name: str = "Rostlab/prot_t5_xl_uniref50",
-                 batch_size: int = 4,
+                 batch_size: int = 16,
                  max_length: int = 1024):
         
         self.data_dir = Path(data_dir)
@@ -385,12 +386,13 @@ class ProtT5EmbeddingGenerator:
                         
                         # Generate embeddings
                         with torch.no_grad():
-                            outputs = model(
-                                ids.input_ids,
-                                attention_mask=ids.attention_mask
-                            )
-                            embeddings = outputs.last_hidden_state
-                        
+                            with autocast(enabled=False):
+                                outputs = model(
+                                    ids.input_ids,
+                                    attention_mask=ids.attention_mask
+                                )
+                                embeddings = outputs.last_hidden_state
+                            
                         # Extract and save embeddings
                         for idx, (pid, seq) in enumerate(zip(batch_ids, batch_seqs)):
                             seq_len = len(seq)
@@ -426,8 +428,8 @@ class ProstT5EmbeddingGenerator:
     def __init__(self, 
                  data_dir: str,
                  output_dir: str,
-                 model_name: str = "Rostlab/ProstT5",
-                 batch_size: int = 4,
+                 model_name: str = "Rostlab/ProstT5_fp16",
+                 batch_size: int = 16,
                  embedding_type: str = "AA",
                  max_length: int = 1024):
         
@@ -465,19 +467,21 @@ class ProstT5EmbeddingGenerator:
         from transformers import T5Tokenizer, T5EncoderModel
         
         logger.info(f"Loading ProstT5 model: {self.model_name}")
+
         tokenizer = T5Tokenizer.from_pretrained(self.model_name, do_lower_case=False)
+        print("Tokenizer loaded.")
         model = T5EncoderModel.from_pretrained(self.model_name)
-        
+        print("Model loaded.")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = model.to(device)
-        
+        print(device)
         # if device.type == 'cpu':
         #     model.float()
         # else:
         #     model.half()
             
         model.eval()
-        
+        print("Model loaded and set to eval mode.")
         # Process each aspect and split
         for aspect in ['BPO', 'CCO', 'MFO']:
             for split in ['train', 'valid', 'test']:
@@ -702,7 +706,7 @@ def main():
         generator = ProtT5EmbeddingGenerator(
             data_dir="./data",
             output_dir="./embedding_cache/prott5",
-            batch_size=4
+            batch_size=8
         )
         generator.generate_embeddings()
         
@@ -712,7 +716,7 @@ def main():
             data_dir="./data",
             output_dir="./embedding_cache/prostt5",
             embedding_type='AA',
-            batch_size=4
+            batch_size=8
         )
         generator.generate_embeddings()
         
@@ -721,7 +725,7 @@ def main():
         generator = AnkhEmbeddingGenerator(
             data_dir="./data",
             output_dir="./embedding_cache/ankh",
-            batch_size=16
+            batch_size=8
         )
         generator.generate_embeddings()
 
