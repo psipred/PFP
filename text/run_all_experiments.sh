@@ -32,7 +32,7 @@ for aspect in BP MF CC; do
     for threshold in 30 50 70 95; do
         for plm in esm ankh prott5 prostt5; do
             echo "Running: Aspect=$aspect, Threshold=$threshold, PLM=$plm" 
-            python train.py --aspect $aspect --threshold $threshold --model plm --plm $plm --output-dir ./PLMS_experiments 
+            python train.py --aspect $aspect --threshold $threshold --model plm --plm $plm --output-dir ./PLMS_experiments
         done
     done
 done
