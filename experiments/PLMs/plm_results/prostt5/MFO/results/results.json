@@ -1,0 +1,30 @@
+{
+  "plm_type": "prostt5",
+  "aspect": "MFO",
+  "num_go_terms": 677,
+  "num_gpus": 1,
+  "effective_batch_size": 16,
+  "test_metrics": {
+    "fmax": 0.6662841489536331,
+    "threshold": 0.44555555555555554,
+    "precision": 0.7125475967493118,
+    "recall": 0.6256619122358482,
+    "micro_auprc": 0.6352365203691128,
+    "macro_auprc": 0.41208805860492154,
+    "cafa_fmax": 0.672,
+    "cafa_threshold": 0.53,
+    "cafa_precision": 0.746,
+    "cafa_recall": 0.611,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.678,
+    "cafa_rc_micro": 0.548,
+    "cafa_f_micro": 0.606,
+    "cafa_smin": 4.386
+  },
+  "best_val_fmax": 0.7073156703311445,
+  "best_epoch": 46,
+  "total_epochs": 50,
+  "train_size": 32421,
+  "val_size": 3587,
+  "test_size": 1137
+}
