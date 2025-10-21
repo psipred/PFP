@@ -184,6 +184,12 @@ def train_model(config):
         config.aspect, 'test', config.plm_type
     )
     
+    # Get embedding dimension from dataset (important for text embeddings)
+    embedding_dim = train_dataset.get_embedding_dim()
+    if config.embedding_dim is None:
+        config.embedding_dim = embedding_dim
+        print(f"Auto-detected embedding dimension: {embedding_dim}")
+    
     # Adjust batch size for multi-GPU
     effective_batch_size = config.batch_size
     if use_multi_gpu:
@@ -285,7 +291,7 @@ def train_model(config):
             print(f"Best validation Fmax: {best_val_fmax:.4f} at epoch {best_epoch}")
             break
     
-    # Test evaluation (keep existing code)
+    # Test evaluation
     print("\n" + "="*70)
     print("TEST EVALUATION")
     print("="*70)
@@ -305,8 +311,7 @@ def train_model(config):
     print(f"  Precision: {test_prec:.4f}, Recall: {test_recall:.4f}")
     print(f"  Micro-AUPRC: {test_micro_auprc:.4f}, Macro-AUPRC: {test_macro_auprc:.4f}")
     
-    # ============ NEW: CAFA EVALUATION ============
-    # obo_file = Path("/home/zijianzhou/Datasets/protad/go_annotations/go-basic.obo")
+    # CAFA EVALUATION
     obo_file = Path("/home/zijianzhou/project/PFP/go.obo")
     cafa_metrics = {}
     
@@ -331,16 +336,17 @@ def train_model(config):
             go_terms=go_terms,
             obo_file=obo_file,
             output_dir=config.results_dir / 'cafa_eval',
-            model_type='plm',  # Specify this is a PLM model
+            model_type='plm',
             model_name=f"{config.plm_type}_{config.aspect}"
         )
     else:
         print(f"\nWarning: OBO file not found at {obo_file}. Skipping CAFA evaluation.")
     
-    # Save results (update to include CAFA metrics)
+    # Save results
     results = {
         'plm_type': config.plm_type,
         'aspect': config.aspect,
+        'embedding_dim': config.embedding_dim,
         'num_go_terms': num_go_terms,
         'num_gpus': n_gpus if use_multi_gpu else 1,
         'effective_batch_size': effective_batch_size,
@@ -351,7 +357,7 @@ def train_model(config):
             'recall': float(test_recall),
             'micro_auprc': float(test_micro_auprc),
             'macro_auprc': float(test_macro_auprc),
-            **cafa_metrics  # Add CAFA metrics
+            **cafa_metrics
         },
         'best_val_fmax': float(best_val_fmax),
         'best_epoch': best_epoch,
@@ -377,7 +383,7 @@ def main():
     
     parser = argparse.ArgumentParser(description="Train PLM classifier on CAFA3 data")
     parser.add_argument('--plm', type=str, required=True, 
-                       choices=['esm', 'prott5', 'prostt5', 'ankh'],
+                       choices=['esm', 'prott5', 'prostt5', 'ankh', 'text'],
                        help='PLM type to use')
     parser.add_argument('--aspect', type=str, default=None,
                        choices=['BPO', 'CCO', 'MFO'],

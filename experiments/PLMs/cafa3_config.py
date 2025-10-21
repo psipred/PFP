@@ -48,6 +48,7 @@ class CAFA3Config:
             'esm': 1280,
             'prott5': 1024,
             'prostt5': 1024,
-            'ankh': 768  # Ankh-base
+            'ankh': 768,  # Ankh-base
+            'text': 768
         }
         self.embedding_dim = self.embedding_dims[self.plm_type]
