@@ -5,6 +5,50 @@ from torch.utils.data import Dataset
 from utils.embeddings import load_embedding
 
 
+
+
+
+"""Unified dataset for all protein language models."""
+
+import torch
+from torch.utils.data import Dataset
+from utils.embeddings import load_embedding
+
+
+class PLMDataset(Dataset):
+    """Dataset for any PLM embeddings (ESM, Ankh, ProtT5, ProST5)."""
+    
+    def __init__(self, proteins, labels, cache_dir, plm_type='esm'):
+        self.proteins = proteins
+        self.labels = torch.FloatTensor(labels)
+        self.cache_dir = cache_dir
+        self.plm_type = plm_type
+    
+    def __len__(self):
+        return len(self.proteins)
+    
+    def __getitem__(self, idx):
+        protein_id = self.proteins[idx]
+        embedding = load_embedding(self.cache_dir, protein_id, self.plm_type)
+        
+        if embedding is None:
+            raise ValueError(f"No {self.plm_type} embedding for {protein_id}")
+        
+        return {
+            'embedding': embedding.float(),
+            'labels': self.labels[idx]
+        }
+
+
+def plm_collate_fn(batch):
+    """Collate function for PLM embeddings."""
+    embeddings = torch.stack([b['embedding'] for b in batch])
+    labels = torch.stack([b['labels'] for b in batch])
+    
+    return {
+        'embeddings': embeddings,
+        'labels': labels
+    }
 class TextDataset(Dataset):
     """Dataset for text embeddings."""
     

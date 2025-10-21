@@ -1,0 +1,29 @@
+{
+  "model_type": "prostt5",
+  "aspect": "CC",
+  "similarity_threshold": 95,
+  "num_go_terms": 800,
+  "test_metrics": {
+    "fmax": 0.6093498369392035,
+    "threshold": 0.3465656565656566,
+    "precision": 0.6088909656182775,
+    "recall": 0.6098094005094657,
+    "micro_auprc": 0.5422165589428072,
+    "macro_auprc": 0.31708620239526764,
+    "cafa_fmax": 0.725,
+    "cafa_threshold": 0.41,
+    "cafa_precision": 0.76,
+    "cafa_recall": 0.693,
+    "cafa_coverage": 0.992,
+    "cafa_pr_micro": 0.726,
+    "cafa_rc_micro": 0.623,
+    "cafa_f_micro": 0.671,
+    "cafa_smin": 5.684
+  },
+  "best_val_fmax": 0.607976380405604,
+  "best_epoch": 50,
+  "total_epochs": 50,
+  "train_size": 32222,
+  "val_size": 3968,
+  "test_size": 4066
+}

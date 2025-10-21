@@ -1,0 +1,29 @@
+{
+  "model_type": "esm",
+  "aspect": "BP",
+  "similarity_threshold": 30,
+  "num_go_terms": 5730,
+  "test_metrics": {
+    "fmax": 0.26634909708133114,
+    "threshold": 0.11888888888888888,
+    "precision": 0.2575108799478113,
+    "recall": 0.27581556256778733,
+    "micro_auprc": 0.19204410960367727,
+    "macro_auprc": 0.09036666827153747,
+    "cafa_fmax": 0.407,
+    "cafa_threshold": 0.15,
+    "cafa_precision": 0.43,
+    "cafa_recall": 0.386,
+    "cafa_coverage": 0.967,
+    "cafa_pr_micro": 0.393,
+    "cafa_rc_micro": 0.354,
+    "cafa_f_micro": 0.372,
+    "cafa_smin": 22.938
+  },
+  "best_val_fmax": 0.27378514932137304,
+  "best_epoch": 50,
+  "total_epochs": 50,
+  "train_size": 14290,
+  "val_size": 1787,
+  "test_size": 1785
+}

@@ -19,11 +19,11 @@ class PLMClassifier(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout),
             
-            # Layer 2
-            nn.Linear(512, 512),
-            nn.LayerNorm(512),
-            nn.ReLU(),
-            nn.Dropout(dropout),
+            # # Layer 2
+            # nn.Linear(512, 512),
+            # nn.LayerNorm(512),
+            # nn.ReLU(),
+            # nn.Dropout(dropout),
             
             # Layer 3
             nn.Linear(512, num_go_terms)

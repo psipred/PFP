@@ -2,10 +2,10 @@
 
 import numpy as np
 import pandas as pd
-from utils.embeddings import precompute_text_embeddings, precompute_esm_embeddings
+from utils.embeddings import precompute_text_embeddings, precompute_plm_embeddings
 
 
-def load_data(config):
+def load_data(config, plm_types=None):
     """
     Load benchmark splits and protein data.
     
@@ -13,6 +13,10 @@ def load_data(config):
         Dict containing splits, GO terms, and protein data
     """
     print(f"\nLoading {config.aspect} benchmark (similarity={config.similarity_threshold}%)")
+
+
+    if plm_types is None:
+        plm_types = ['esm']
     
     if not config.split_dir.exists():
         raise FileNotFoundError(f"Split directory not found: {config.split_dir}")
@@ -87,7 +91,8 @@ def load_data(config):
     # Precompute embeddings
     all_proteins = train_proteins + val_proteins + test_proteins
     precompute_text_embeddings(config, protad_dict, all_proteins)
-    precompute_esm_embeddings(config, sequences_dict, all_proteins)
+    for plm_type in plm_types:
+        precompute_plm_embeddings(config, sequences_dict, all_proteins, plm_type)
     
     return {
         'train': (train_proteins, train_labels),

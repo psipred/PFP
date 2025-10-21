@@ -10,10 +10,10 @@ class Config:
     """Training and model configuration."""
     
     # Paths
-    benchmark_base: Path = Path("../benchmark/go_annotations/benchmarks")
-    protad_path: Path = Path("../benchmark/protad.tsv")
-    # benchmark_base: Path = Path("/home/zijianzhou/Datasets/protad/go_annotations/benchmarks")
-    # protad_path: Path = Path("/home/zijianzhou/Datasets/protad/protad.tsv")
+    # benchmark_base: Path = Path("../benchmark/go_annotations/benchmarks")
+    # protad_path: Path = Path("../benchmark/protad.tsv")
+    benchmark_base: Path = Path("/home/zijianzhou/Datasets/protad/go_annotations/benchmarks")
+    protad_path: Path = Path("/home/zijianzhou/Datasets/protad/protad.tsv")
     # benchmark_base: Path = Path("../benchmark/go_annotations/benchmarks")
     # protad_path: Path = Path("../benchmark/protad.tsv")
     # benchmark_base: Path = Path("/home/zijianzhou/Datasets/protad/go_annotations/benchmarks")
@@ -24,7 +24,10 @@ class Config:
     # Model settings
     pubmed_model: str = "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext"
     esm_model: str = "facebook/esm2_t33_650M_UR50D"
-    
+
+    ankh_model: str = "ElnaggarLab/ankh-base"
+    prott5_model: str = "Rostlab/prot_t5_xl_uniref50"
+    prostt5_model: str = "Rostlab/ProstT5_fp16"
     # Training hyperparameters
     batch_size: int = 128
     learning_rate: float = 1e-4

@@ -1,0 +1,29 @@
+{
+  "model_type": "ankh",
+  "aspect": "CC",
+  "similarity_threshold": 30,
+  "num_go_terms": 798,
+  "test_metrics": {
+    "fmax": 0.582732004585188,
+    "threshold": 0.29707070707070704,
+    "precision": 0.5772585759897708,
+    "recall": 0.5883102223653621,
+    "micro_auprc": 0.5049216082414768,
+    "macro_auprc": 0.24757707651586727,
+    "cafa_fmax": 0.709,
+    "cafa_threshold": 0.34,
+    "cafa_precision": 0.728,
+    "cafa_recall": 0.691,
+    "cafa_coverage": 0.987,
+    "cafa_pr_micro": 0.692,
+    "cafa_rc_micro": 0.628,
+    "cafa_f_micro": 0.659,
+    "cafa_smin": 5.646
+  },
+  "best_val_fmax": 0.5849395474365736,
+  "best_epoch": 50,
+  "total_epochs": 50,
+  "train_size": 13242,
+  "val_size": 1643,
+  "test_size": 1664
+}

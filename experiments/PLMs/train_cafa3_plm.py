@@ -307,7 +307,7 @@ def train_model(config):
     
     # ============ NEW: CAFA EVALUATION ============
     # obo_file = Path("/home/zijianzhou/Datasets/protad/go_annotations/go-basic.obo")
-    obo_file = Path("/SAN/bioinf/PFP/dataset/zenodo/go.obo")
+    obo_file = Path("/home/zijianzhou/project/PFP/go.obo")
     cafa_metrics = {}
     
     if obo_file.exists():
