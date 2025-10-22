@@ -1,0 +1,31 @@
+{
+  "model_type": "triple_adaptive_fusion",
+  "aspect": "CCO",
+  "num_go_terms": 551,
+  "seed": 42,
+  "use_diversity_loss": false,
+  "diversity_weight": null,
+  "test_metrics": {
+    "fmax": 0.6356750933626478,
+    "threshold": 0.6039393939393939,
+    "precision": 0.6914176918570542,
+    "recall": 0.5882499532739357,
+    "micro_auprc": 0.6847729000664369,
+    "macro_auprc": 0.22673631827111254,
+    "cafa_fmax": 0.702,
+    "cafa_threshold": 0.66,
+    "cafa_precision": 0.74,
+    "cafa_recall": 0.667,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.709,
+    "cafa_rc_micro": 0.572,
+    "cafa_f_micro": 0.634,
+    "cafa_smin": 6.179
+  },
+  "best_val_fmax": 0.7180937591928818,
+  "best_epoch": 12,
+  "total_epochs": 17,
+  "train_size": 45309,
+  "val_size": 4985,
+  "test_size": 1265
+}
