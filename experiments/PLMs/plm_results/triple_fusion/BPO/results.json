@@ -1,0 +1,18 @@
+{
+  "model_type": "triple_adaptive_fusion",
+  "aspect": "BPO",
+  "num_go_terms": 3992,
+  "seed": 42,
+  "test_metrics": {
+    "fmax": 0.572460542625147,
+    "threshold": 0.6237373737373737,
+    "precision": 0.611618051563697,
+    "recall": 0.5380152897329438
+  },
+  "best_val_fmax": 0.5743180893593098,
+  "best_epoch": 41,
+  "total_epochs": 50,
+  "train_size": 47691,
+  "val_size": 5252,
+  "test_size": 2392
+}
