@@ -2,7 +2,7 @@
   "model_type": "ankh",
   "aspect": "BP",
   "similarity_threshold": 30,
-  "num_go_terms": 5730,
+  "num_go_terms": 5730, 
   "test_metrics": {
     "fmax": 0.2632760715167846,
     "threshold": 0.11888888888888888,
