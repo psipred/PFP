@@ -1,9 +1,6 @@
-
-
 from pathlib import Path
 from dataclasses import dataclass
 import torch
-
 
 
 @dataclass
@@ -29,6 +26,9 @@ class CAFA3Config:
     
     # Experiment settings
     aspect: str = 'BPO'  # 'BPO', 'CCO', 'MFO'
+    
+    # Reproducibility
+    seed: int = 42  # ADD THIS
     
     def __post_init__(self):
         # Setup device

@@ -1,9 +1,10 @@
-"""Training script for CAFA3 PLM experiments."""
+"""Training script for CAFA3 PLM experiments - REPRODUCIBLE VERSION."""
 
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import json
+import random
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -17,6 +18,24 @@ from cafa3_dataset import CAFA3PLMDataset, collate_fn
 from plm_classifier import PLMClassifier
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from text.utils.cafa_evaluation import evaluate_with_cafa
+
+
+def set_seed(seed=42):
+    """Set random seed for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+def worker_init_fn(worker_id):
+    """Initialize each worker with a different seed."""
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
 
 class EarlyStopping:
     """Early stopping to prevent overfitting."""
@@ -140,8 +159,6 @@ def evaluate(model, loader, criterion, device, use_multi_gpu=False):
     y_pred = np.vstack(all_preds)
     y_true = np.vstack(all_labels)
     
-
-
     # Compute metrics
     fmax, threshold, precision, recall = compute_fmax(y_true, y_pred)
     micro_auprc, macro_auprc = compute_auprc(y_true, y_pred)
@@ -151,6 +168,9 @@ def evaluate(model, loader, criterion, device, use_multi_gpu=False):
 
 def train_model(config):
     """Main training function."""
+    # Set seed for reproducibility
+    set_seed(config.seed)
+    
     # Check GPU availability
     if not torch.cuda.is_available():
         device = 'cpu'
@@ -169,6 +189,7 @@ def train_model(config):
             print(f"\nUsing single GPU: {torch.cuda.get_device_name(0)}")
     
     print(f"Training {config.plm_type.upper()} model for {config.aspect}")
+    print(f"Random seed: {config.seed}")
     
     # Load datasets
     train_dataset = CAFA3PLMDataset(
@@ -184,7 +205,7 @@ def train_model(config):
         config.aspect, 'test', config.plm_type
     )
     
-    # Get embedding dimension from dataset (important for text embeddings)
+    # Get embedding dimension from dataset
     embedding_dim = train_dataset.get_embedding_dim()
     if config.embedding_dim is None:
         config.embedding_dim = embedding_dim
@@ -193,25 +214,27 @@ def train_model(config):
     # Adjust batch size for multi-GPU
     effective_batch_size = config.batch_size
     if use_multi_gpu:
-        # Each GPU gets batch_size // n_gpus samples
         effective_batch_size = config.batch_size * n_gpus
         print(f"Effective batch size: {effective_batch_size} ({config.batch_size} per GPU)")
     
-    # Create dataloaders
+    # Create dataloaders with worker_init_fn for reproducibility
     train_loader = DataLoader(
         train_dataset, batch_size=effective_batch_size, 
         shuffle=True, collate_fn=collate_fn, 
-        num_workers=12, pin_memory=True
+        num_workers=12, pin_memory=True,
+        worker_init_fn=worker_init_fn
     )
     val_loader = DataLoader(
         val_dataset, batch_size=effective_batch_size,
         shuffle=False, collate_fn=collate_fn,
-        num_workers=12, pin_memory=True
+        num_workers=12, pin_memory=True,
+        worker_init_fn=worker_init_fn
     )
     test_loader = DataLoader(
         test_dataset, batch_size=effective_batch_size,
         shuffle=False, collate_fn=collate_fn,
-        num_workers=12, pin_memory=True
+        num_workers=12, pin_memory=True,
+        worker_init_fn=worker_init_fn
     )
     
     # Get number of GO terms
@@ -350,6 +373,7 @@ def train_model(config):
         'num_go_terms': num_go_terms,
         'num_gpus': n_gpus if use_multi_gpu else 1,
         'effective_batch_size': effective_batch_size,
+        'seed': config.seed,
         'test_metrics': {
             'fmax': float(test_fmax),
             'threshold': float(test_threshold),
@@ -392,6 +416,8 @@ def main():
                        help='Batch size per GPU')
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--seed', type=int, default=42,
+                       help='Random seed for reproducibility')
     
     args = parser.parse_args()
     
@@ -399,8 +425,9 @@ def main():
     aspects = [args.aspect] if args.aspect else ['BPO', 'CCO', 'MFO']
     
     print("="*70)
-    print(f"CAFA3 PLM Experiment")
+    print(f"CAFA3 PLM Experiment - REPRODUCIBLE")
     print(f"PLM: {args.plm.upper()}, Aspects: {', '.join(aspects)}")
+    print(f"Seed: {args.seed}")
     print("="*70)
     
     # Train model for each aspect
@@ -415,7 +442,8 @@ def main():
             aspect=aspect,
             batch_size=args.batch_size,
             learning_rate=args.lr,
-            num_epochs=args.epochs
+            num_epochs=args.epochs,
+            seed=args.seed
         )
         
         results = train_model(config)
