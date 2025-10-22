@@ -31,7 +31,7 @@ def set_seed(seed=42):
 
 
 def compute_fmax(y_true, y_pred, thresholds=None):
-    """Compute Fmax metric."""
+    """Compute micro-averaged Fmax."""
     if thresholds is None:
         thresholds = np.linspace(0.01, 0.99, 100)
     
@@ -43,12 +43,13 @@ def compute_fmax(y_true, y_pred, thresholds=None):
     for threshold in thresholds:
         y_pred_binary = (y_pred >= threshold).astype(int)
         
-        tp = ((y_pred_binary == 1) & (y_true == 1)).sum(axis=1)
-        fp = ((y_pred_binary == 1) & (y_true == 0)).sum(axis=1)
-        fn = ((y_pred_binary == 0) & (y_true == 1)).sum(axis=1)
+        # Micro-averaging: sum across all samples and terms
+        tp = ((y_pred_binary == 1) & (y_true == 1)).sum()
+        fp = ((y_pred_binary == 1) & (y_true == 0)).sum()
+        fn = ((y_pred_binary == 0) & (y_true == 1)).sum()
         
-        precision = (tp / (tp + fp + 1e-10)).mean()
-        recall = (tp / (tp + fn + 1e-10)).mean()
+        precision = tp / (tp + fp + 1e-10)
+        recall = tp / (tp + fn + 1e-10)
         f1 = 2 * precision * recall / (precision + recall + 1e-10)
         
         if f1 > best_fmax:
@@ -58,7 +59,6 @@ def compute_fmax(y_true, y_pred, thresholds=None):
             best_recall = recall
     
     return best_fmax, best_threshold, best_precision, best_recall
-
 
 def compute_auprc(y_true, y_pred):
     """Compute micro and macro AUPRC."""
@@ -79,8 +79,8 @@ def compute_auprc(y_true, y_pred):
     return micro_auprc, macro_auprc
 
 
-def train_epoch(model, loader, optimizer, criterion, device):
-    """Train for one epoch."""
+def train_epoch(model, loader, optimizer, criterion, device, 
+                diversity_weight=0.0, gate_entropy_weight=0.001):
     model.train()
     total_loss = 0
     
@@ -90,8 +90,15 @@ def train_epoch(model, loader, optimizer, criterion, device):
         esm = batch['esm'].to(device)
         labels = batch['labels'].to(device)
         
-        logits, diversity_loss = model(text, prott5, esm)
+        logits, diversity_loss, gate_entropy_loss = model(text, prott5, esm)
         loss = criterion(logits, labels)
+        
+        if diversity_loss is not None:
+            loss = loss + diversity_weight * diversity_loss
+        
+        if gate_entropy_loss is not None:
+            loss = loss + gate_entropy_weight * gate_entropy_loss
+        
         
         optimizer.zero_grad()
         loss.backward()
@@ -101,6 +108,38 @@ def train_epoch(model, loader, optimizer, criterion, device):
         total_loss += loss.item()
     
     return total_loss / len(loader)
+
+def log_gate_statistics(model, loader, device):
+    """Log gate behavior on validation set."""
+    model.eval()
+    all_text_gates = []
+    all_prott5_gates = []
+    all_esm_gates = []
+    
+    with torch.no_grad():
+        for batch in loader:
+            text = batch['text'].to(device)
+            prott5 = batch['prott5'].to(device)
+            esm = batch['esm'].to(device)
+            
+            text_h = model.text_transform(text)
+            prott5_h = model.prott5_transform(prott5)
+            esm_h = model.esm_transform(esm)
+            
+            tg, pg, eg = model.compute_adaptive_gates(text_h, prott5_h, esm_h)
+            
+            all_text_gates.append(tg.cpu())
+            all_prott5_gates.append(pg.cpu())
+            all_esm_gates.append(eg.cpu())
+    
+    text_mean = torch.cat(all_text_gates).mean().item()
+    prott5_mean = torch.cat(all_prott5_gates).mean().item()
+    esm_mean = torch.cat(all_esm_gates).mean().item()
+    
+    print(f"  Gate means: Text={text_mean:.3f}, ProtT5={prott5_mean:.3f}, ESM={esm_mean:.3f}")
+    
+    return text_mean, prott5_mean, esm_mean
+
 
 
 def evaluate(model, loader, criterion, device):
@@ -116,8 +155,8 @@ def evaluate(model, loader, criterion, device):
             prott5 = batch['prott5'].to(device)
             esm = batch['esm'].to(device)
             labels = batch['labels'].to(device)
-            
-            logits, _ = model(text, prott5, esm)
+
+            logits, _, _ = model(text, prott5, esm)
             loss = criterion(logits, labels)
             
             total_loss += loss.item()
@@ -131,8 +170,6 @@ def evaluate(model, loader, criterion, device):
     micro_auprc, macro_auprc = compute_auprc(y_true, y_pred)
     
     return total_loss / len(loader), fmax, threshold, precision, recall, micro_auprc, macro_auprc
-
-
 def evaluate_with_cafa_triple(model, loader, device, protein_ids, go_terms, obo_file, output_dir):
     """CAFA evaluation wrapper for triple modality model."""
     try:
@@ -172,7 +209,7 @@ def evaluate_with_cafa_triple(model, loader, device, protein_ids, go_terms, obo_
                 text = embeddings[:, :self.text_dim]
                 prott5 = embeddings[:, self.text_dim:self.text_dim+self.prott5_dim]
                 esm = embeddings[:, self.text_dim+self.prott5_dim:]
-                logits, _ = self.model(text, prott5, esm)
+                logits, _, _ = self.model(text, prott5, esm)
                 return logits
         
         wrapped_model = ModelWrapper(model).to(device)
@@ -192,9 +229,7 @@ def evaluate_with_cafa_triple(model, loader, device, protein_ids, go_terms, obo_
     except Exception as e:
         print(f"\nWarning: CAFA evaluation failed: {e}")
         return {}
-
-
-def train_model(aspect):
+def train_model(aspect, use_diversity_loss=False, diversity_weight=0.01):
     """Main training function."""
     # Configuration
     seed = 42
@@ -204,15 +239,24 @@ def train_model(aspect):
     print(f"\nTraining Triple Adaptive Fusion for {aspect}")
     print(f"Device: {device}")
     print(f"Seed: {seed}")
+    print(f"Diversity Loss: {'ENABLED' if use_diversity_loss else 'DISABLED'}")
+    if use_diversity_loss:
+        print(f"Diversity Weight: {diversity_weight}")
     
-    # Setup directories
+    # Setup directories with diversity loss indicator
     data_dir = Path("/home/zijianzhou/project/PFP/experiments/PLMs/data")
     embedding_dirs = {
         'text': '/home/zijianzhou/project/PFP/experiments/PLMs/embedding_cache/text',
         'prott5': '/home/zijianzhou/project/PFP/experiments/PLMs/embedding_cache/prott5',
         'esm': '/home/zijianzhou/project/PFP/experiments/PLMs/embedding_cache/esm'
     }
-    output_dir = Path(f"/home/zijianzhou/project/PFP/experiments/PLMs/plm_results/triple_fusion/{aspect}")
+    
+    # Different output directory based on diversity loss
+    if use_diversity_loss:
+        output_dir = Path(f"/home/zijianzhou/project/PFP/experiments/PLMs/plm_results/triple_fusion_div/{aspect}")
+    else:
+        output_dir = Path(f"/home/zijianzhou/project/PFP/experiments/PLMs/plm_results/triple_fusion/{aspect}")
+    
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Load datasets
@@ -228,14 +272,16 @@ def train_model(aspect):
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False,
                             collate_fn=collate_fn, num_workers=8, pin_memory=True)
     
-    # Create model
+    # Create model with diversity loss config
     num_go_terms = train_dataset.labels.shape[1]
     model = TripleModalityAdaptiveFusion(
         text_dim=768,
         prott5_dim=1024,
         esm_dim=1280,
         hidden_dim=512,
-        num_go_terms=num_go_terms
+        num_go_terms=num_go_terms,
+        use_diversity_loss=use_diversity_loss,
+        diversity_weight=diversity_weight
     ).to(device)
     
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
@@ -247,16 +293,20 @@ def train_model(aspect):
     # Training loop
     best_val_fmax = 0
     patience_counter = 0
-    patience = 10
-    
+    patience = 5
     history = []
     
     for epoch in range(1, 51):
-        train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
+        train_loss = train_epoch(model, train_loader, optimizer, criterion, device,
+                                diversity_weight if use_diversity_loss else 0.0)
         val_loss, val_fmax, val_threshold, val_prec, val_recall, val_micro_auprc, val_macro_auprc = evaluate(
             model, val_loader, criterion, device
         )
         
+        if epoch % 5 == 0:  # Every 5 epochs
+            log_gate_statistics(model, val_loader, device)
+
+
         print(f"\nEpoch {epoch}/50")
         print(f"  Train Loss: {train_loss:.4f}")
         print(f"  Val Loss: {val_loss:.4f}, Fmax: {val_fmax:.4f} (t={val_threshold:.3f})")
@@ -299,13 +349,15 @@ def train_model(aspect):
     test_loss, test_fmax, test_threshold, test_prec, test_recall, test_micro_auprc, test_macro_auprc = evaluate(
         model, test_loader, criterion, device
     )
+
+
     
     print(f"\nTest Results:")
     print(f"  Fmax: {test_fmax:.4f} (threshold={test_threshold:.3f})")
     print(f"  Precision: {test_prec:.4f}, Recall: {test_recall:.4f}")
     print(f"  Micro-AUPRC: {test_micro_auprc:.4f}, Macro-AUPRC: {test_macro_auprc:.4f}")
     
-    # CAFA EVALUATION
+    # CAFA evaluation
     obo_file = Path("/home/zijianzhou/project/PFP/go.obo")
     cafa_metrics = {}
     
@@ -314,12 +366,10 @@ def train_model(aspect):
         print("CAFA-STYLE EVALUATION")
         print("="*70)
         
-        # Load GO terms for this aspect
         go_terms_file = data_dir / f"{aspect}_go_terms.json"
         with open(go_terms_file, 'r') as f:
             go_terms = json.load(f)
         
-        # Get test protein IDs
         test_protein_ids = test_dataset.protein_ids.tolist()
         
         cafa_metrics = evaluate_with_cafa_triple(
@@ -334,12 +384,14 @@ def train_model(aspect):
     else:
         print(f"\nWarning: OBO file not found at {obo_file}. Skipping CAFA evaluation.")
     
-    # Save results
+    # Save results with diversity loss info
     results = {
         'model_type': 'triple_adaptive_fusion',
         'aspect': aspect,
         'num_go_terms': num_go_terms,
         'seed': seed,
+        'use_diversity_loss': use_diversity_loss,
+        'diversity_weight': diversity_weight if use_diversity_loss else None,
         'test_metrics': {
             'fmax': float(test_fmax),
             'threshold': float(test_threshold),
@@ -369,6 +421,8 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--aspect', type=str, required=True, choices=['BPO', 'CCO', 'MFO'])
+    parser.add_argument('--use-diversity-loss', action='store_true', help='Enable diversity loss')
+    parser.add_argument('--diversity-weight', type=float, default=0.01, help='Diversity loss weight')
     args = parser.parse_args()
     
-    train_model(args.aspect)
+    train_model(args.aspect, args.use_diversity_loss, args.diversity_weight)

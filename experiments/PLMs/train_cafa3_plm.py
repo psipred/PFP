@@ -66,7 +66,7 @@ class EarlyStopping:
 
 
 def compute_fmax(y_true, y_pred, thresholds=None):
-    """Compute Fmax metric."""
+    """Compute micro-averaged Fmax."""
     if thresholds is None:
         thresholds = np.linspace(0.01, 0.99, 100)
     
@@ -78,13 +78,13 @@ def compute_fmax(y_true, y_pred, thresholds=None):
     for threshold in thresholds:
         y_pred_binary = (y_pred >= threshold).astype(int)
         
-        tp = ((y_pred_binary == 1) & (y_true == 1)).sum(axis=1)
-        fp = ((y_pred_binary == 1) & (y_true == 0)).sum(axis=1)
-        fn = ((y_pred_binary == 0) & (y_true == 1)).sum(axis=1)
+        # Micro-averaging: sum across all samples and terms
+        tp = ((y_pred_binary == 1) & (y_true == 1)).sum()
+        fp = ((y_pred_binary == 1) & (y_true == 0)).sum()
+        fn = ((y_pred_binary == 0) & (y_true == 1)).sum()
         
-        precision = (tp / (tp + fp + 1e-10)).mean()
-        recall = (tp / (tp + fn + 1e-10)).mean()
-        
+        precision = tp / (tp + fp + 1e-10)
+        recall = tp / (tp + fn + 1e-10)
         f1 = 2 * precision * recall / (precision + recall + 1e-10)
         
         if f1 > best_fmax:

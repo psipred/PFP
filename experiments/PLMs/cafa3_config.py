@@ -21,7 +21,7 @@ class CAFA3Config:
     num_epochs: int = 50
     
     # Early stopping
-    early_stopping_patience: int = 10
+    early_stopping_patience: int = 5
     min_delta: float = 0.0001
     
     # Experiment settings
