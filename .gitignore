@@ -16,7 +16,7 @@ cluster_embed/esm_embedding/__pycache__/
 .env
 *.egg-info/
 *.csv
-*.pt
+**/*.pt
 *.tsv
 *.h5
 *.hdf5
@@ -29,7 +29,6 @@ cluster_embed/esm_embedding/__pycache__/
 # Ignore OS files
 .DS_Store
 Thumbs.db 
-
 # Ignore project data, configuration, and output artifacts
 Data/
 Download
