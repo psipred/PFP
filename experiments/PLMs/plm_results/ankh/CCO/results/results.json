@@ -7,10 +7,10 @@
   "effective_batch_size": 16,
   "seed": 42,
   "test_metrics": {
-    "fmax": 0.6507754847964758,
-    "threshold": 0.495050505050505,
-    "precision": 0.679380034609224,
-    "recall": 0.6244823420977591,
+    "fmax": 0.5862239677378889,
+    "threshold": 0.43565656565656563,
+    "precision": 0.6233155530600742,
+    "recall": 0.5532988598841159,
     "micro_auprc": 0.616310134529437,
     "macro_auprc": 0.09585262181994518,
     "cafa_fmax": 0.652,
@@ -23,7 +23,7 @@
     "cafa_f_micro": 0.582,
     "cafa_smin": 6.966
   },
-  "best_val_fmax": 0.6857697787571295,
+  "best_val_fmax": 0.6311597932849426,
   "best_epoch": 50,
   "total_epochs": 50,
   "train_size": 45309,
