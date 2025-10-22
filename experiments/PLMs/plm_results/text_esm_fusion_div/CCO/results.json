@@ -1,0 +1,33 @@
+{
+  "model_type": "pairwise_adaptive_fusion",
+  "modality_pair": "text_esm",
+  "experiment_name": "text_esm_fusion_div",
+  "aspect": "CCO",
+  "num_go_terms": 551,
+  "seed": 42,
+  "use_diversity_loss": true,
+  "diversity_weight": 0.02,
+  "test_metrics": {
+    "fmax": 0.63159978875693,
+    "threshold": 0.5643434343434344,
+    "precision": 0.671437592085872,
+    "recall": 0.5962245342969248,
+    "micro_auprc": 0.6768458523509258,
+    "macro_auprc": 0.20862066179625435,
+    "cafa_fmax": 0.7,
+    "cafa_threshold": 0.63,
+    "cafa_precision": 0.738,
+    "cafa_recall": 0.665,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.695,
+    "cafa_rc_micro": 0.574,
+    "cafa_f_micro": 0.629,
+    "cafa_smin": 6.277
+  },
+  "best_val_fmax": 0.7134739465723774,
+  "best_epoch": 15,
+  "total_epochs": 20,
+  "train_size": 45309,
+  "val_size": 4985,
+  "test_size": 1265
+}

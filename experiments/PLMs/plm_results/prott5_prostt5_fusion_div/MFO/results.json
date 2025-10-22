@@ -1,0 +1,33 @@
+{
+  "model_type": "pairwise_adaptive_fusion",
+  "modality_pair": "prott5_prostt5",
+  "experiment_name": "prott5_prostt5_fusion_div",
+  "aspect": "MFO",
+  "num_go_terms": 677,
+  "seed": 42,
+  "use_diversity_loss": true,
+  "diversity_weight": 0.02,
+  "test_metrics": {
+    "fmax": 0.6186843087586429,
+    "threshold": 0.495050505050505,
+    "precision": 0.6335919571631446,
+    "recall": 0.6044620517097519,
+    "micro_auprc": 0.649178433677794,
+    "macro_auprc": 0.4240188811401736,
+    "cafa_fmax": 0.679,
+    "cafa_threshold": 0.54,
+    "cafa_precision": 0.7,
+    "cafa_recall": 0.659,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.638,
+    "cafa_rc_micro": 0.604,
+    "cafa_f_micro": 0.621,
+    "cafa_smin": 4.332
+  },
+  "best_val_fmax": 0.6631592861367535,
+  "best_epoch": 20,
+  "total_epochs": 25,
+  "train_size": 32421,
+  "val_size": 3587,
+  "test_size": 1137
+}

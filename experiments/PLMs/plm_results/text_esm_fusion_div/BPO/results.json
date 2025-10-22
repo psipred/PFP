@@ -1,0 +1,33 @@
+{
+  "model_type": "pairwise_adaptive_fusion",
+  "modality_pair": "text_esm",
+  "experiment_name": "text_esm_fusion_div",
+  "aspect": "BPO",
+  "num_go_terms": 3992,
+  "seed": 42,
+  "use_diversity_loss": true,
+  "diversity_weight": 0.02,
+  "test_metrics": {
+    "fmax": 0.49575247498462355,
+    "threshold": 0.40595959595959596,
+    "precision": 0.5091816749377818,
+    "recall": 0.4830134383818058,
+    "micro_auprc": 0.47372893598995536,
+    "macro_auprc": 0.17558240493054247,
+    "cafa_fmax": 0.568,
+    "cafa_threshold": 0.53,
+    "cafa_precision": 0.593,
+    "cafa_recall": 0.545,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.556,
+    "cafa_rc_micro": 0.437,
+    "cafa_f_micro": 0.489,
+    "cafa_smin": 19.678
+  },
+  "best_val_fmax": 0.5102505858134206,
+  "best_epoch": 25,
+  "total_epochs": 30,
+  "train_size": 47691,
+  "val_size": 5252,
+  "test_size": 2392
+}
