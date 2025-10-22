@@ -16,6 +16,7 @@ cluster_embed/esm_embedding/__pycache__/
 .env
 *.egg-info/
 *.csv
+*.pt
 *.tsv
 *.h5
 *.hdf5
