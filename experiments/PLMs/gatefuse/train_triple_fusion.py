@@ -14,8 +14,6 @@ import pandas as pd
 import sys
 from pathlib import Path
 
-# sys.path.append(str(Path(__file__).resolve().parents[3]))
-
 from triple_adaptive_model import TripleModalityAdaptiveFusion
 from triple_dataset import TripleModalityDataset, collate_fn
 sys.path.append('/home/zijianzhou/project/PFP/experiments/PLMs')
@@ -60,6 +58,25 @@ def compute_fmax(y_true, y_pred, thresholds=None):
             best_recall = recall
     
     return best_fmax, best_threshold, best_precision, best_recall
+
+
+def compute_auprc(y_true, y_pred):
+    """Compute micro and macro AUPRC."""
+    from sklearn.metrics import average_precision_score
+    
+    # Micro-averaged
+    micro_auprc = average_precision_score(y_true.ravel(), y_pred.ravel())
+    
+    # Macro-averaged
+    term_auprcs = []
+    for i in range(y_true.shape[1]):
+        if y_true[:, i].sum() > 0:
+            term_auprc = average_precision_score(y_true[:, i], y_pred[:, i])
+            term_auprcs.append(term_auprc)
+    
+    macro_auprc = np.mean(term_auprcs) if term_auprcs else 0.0
+    
+    return micro_auprc, macro_auprc
 
 
 def train_epoch(model, loader, optimizer, criterion, device):
@@ -111,8 +128,70 @@ def evaluate(model, loader, criterion, device):
     y_true = np.vstack(all_labels)
     
     fmax, threshold, precision, recall = compute_fmax(y_true, y_pred)
+    micro_auprc, macro_auprc = compute_auprc(y_true, y_pred)
     
-    return total_loss / len(loader), fmax, threshold, precision, recall
+    return total_loss / len(loader), fmax, threshold, precision, recall, micro_auprc, macro_auprc
+
+
+def evaluate_with_cafa_triple(model, loader, device, protein_ids, go_terms, obo_file, output_dir):
+    """CAFA evaluation wrapper for triple modality model."""
+    try:
+        sys.path.append(str(Path(__file__).resolve().parents[3]))
+        from text.utils.cafa_evaluation import evaluate_with_cafa
+        
+        # Create a wrapper loader that returns compatible batches
+        class TripleToSingleBatch:
+            def __init__(self, loader):
+                self.loader = loader
+            
+            def __iter__(self):
+                for batch in self.loader:
+                    # Concatenate all modalities as "embeddings"
+                    yield {
+                        'embeddings': torch.cat([
+                            batch['text'],
+                            batch['prott5'],
+                            batch['esm']
+                        ], dim=-1),
+                        'labels': batch['labels']
+                    }
+            
+            def __len__(self):
+                return len(self.loader)
+        
+        # Create wrapper model that expects concatenated input
+        class ModelWrapper(nn.Module):
+            def __init__(self, triple_model):
+                super().__init__()
+                self.model = triple_model
+                self.text_dim = 768
+                self.prott5_dim = 1024
+                self.esm_dim = 1280
+            
+            def forward(self, embeddings):
+                text = embeddings[:, :self.text_dim]
+                prott5 = embeddings[:, self.text_dim:self.text_dim+self.prott5_dim]
+                esm = embeddings[:, self.text_dim+self.prott5_dim:]
+                logits, _ = self.model(text, prott5, esm)
+                return logits
+        
+        wrapped_model = ModelWrapper(model).to(device)
+        wrapped_loader = TripleToSingleBatch(loader)
+        
+        return evaluate_with_cafa(
+            model=wrapped_model,
+            loader=wrapped_loader,
+            device=device,
+            protein_ids=protein_ids,
+            go_terms=go_terms,
+            obo_file=obo_file,
+            output_dir=output_dir,
+            model_type='triple_fusion',
+            model_name='triple_fusion'
+        )
+    except Exception as e:
+        print(f"\nWarning: CAFA evaluation failed: {e}")
+        return {}
 
 
 def train_model(aspect):
@@ -174,20 +253,26 @@ def train_model(aspect):
     
     for epoch in range(1, 51):
         train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
-        val_loss, val_fmax, val_threshold, val_prec, val_recall = evaluate(
+        val_loss, val_fmax, val_threshold, val_prec, val_recall, val_micro_auprc, val_macro_auprc = evaluate(
             model, val_loader, criterion, device
         )
         
         print(f"\nEpoch {epoch}/50")
         print(f"  Train Loss: {train_loss:.4f}")
-        print(f"  Val Loss: {val_loss:.4f}, Fmax: {val_fmax:.4f}")
+        print(f"  Val Loss: {val_loss:.4f}, Fmax: {val_fmax:.4f} (t={val_threshold:.3f})")
+        print(f"  Precision: {val_prec:.4f}, Recall: {val_recall:.4f}")
+        print(f"  Micro-AUPRC: {val_micro_auprc:.4f}, Macro-AUPRC: {val_macro_auprc:.4f}")
         
         history.append({
             'epoch': epoch,
             'train_loss': train_loss,
             'val_loss': val_loss,
             'fmax': val_fmax,
-            'threshold': val_threshold
+            'threshold': val_threshold,
+            'precision': val_prec,
+            'recall': val_recall,
+            'micro_auprc': val_micro_auprc,
+            'macro_auprc': val_macro_auprc
         })
         
         # Save best model
@@ -211,13 +296,43 @@ def train_model(aspect):
     print("="*70)
     
     model.load_state_dict(torch.load(output_dir / "best_model.pt"))
-    test_loss, test_fmax, test_threshold, test_prec, test_recall = evaluate(
+    test_loss, test_fmax, test_threshold, test_prec, test_recall, test_micro_auprc, test_macro_auprc = evaluate(
         model, test_loader, criterion, device
     )
     
     print(f"\nTest Results:")
     print(f"  Fmax: {test_fmax:.4f} (threshold={test_threshold:.3f})")
     print(f"  Precision: {test_prec:.4f}, Recall: {test_recall:.4f}")
+    print(f"  Micro-AUPRC: {test_micro_auprc:.4f}, Macro-AUPRC: {test_macro_auprc:.4f}")
+    
+    # CAFA EVALUATION
+    obo_file = Path("/home/zijianzhou/project/PFP/go.obo")
+    cafa_metrics = {}
+    
+    if obo_file.exists():
+        print("\n" + "="*70)
+        print("CAFA-STYLE EVALUATION")
+        print("="*70)
+        
+        # Load GO terms for this aspect
+        go_terms_file = data_dir / f"{aspect}_go_terms.json"
+        with open(go_terms_file, 'r') as f:
+            go_terms = json.load(f)
+        
+        # Get test protein IDs
+        test_protein_ids = test_dataset.protein_ids.tolist()
+        
+        cafa_metrics = evaluate_with_cafa_triple(
+            model=model,
+            loader=test_loader,
+            device=device,
+            protein_ids=test_protein_ids,
+            go_terms=go_terms,
+            obo_file=obo_file,
+            output_dir=output_dir / 'cafa_eval'
+        )
+    else:
+        print(f"\nWarning: OBO file not found at {obo_file}. Skipping CAFA evaluation.")
     
     # Save results
     results = {
@@ -229,7 +344,10 @@ def train_model(aspect):
             'fmax': float(test_fmax),
             'threshold': float(test_threshold),
             'precision': float(test_prec),
-            'recall': float(test_recall)
+            'recall': float(test_recall),
+            'micro_auprc': float(test_micro_auprc),
+            'macro_auprc': float(test_macro_auprc),
+            **cafa_metrics
         },
         'best_val_fmax': float(best_val_fmax),
         'best_epoch': int(best_epoch),
