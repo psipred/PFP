@@ -1,0 +1,32 @@
+{
+  "plm_type": "text",
+  "aspect": "MFO",
+  "embedding_dim": 768,
+  "num_go_terms": 677,
+  "num_gpus": 1,
+  "effective_batch_size": 16,
+  "seed": 42,
+  "test_metrics": {
+    "fmax": 0.625682863433287,
+    "threshold": 0.38616161616161615,
+    "precision": 0.6687456464664372,
+    "recall": 0.5878304803813453,
+    "micro_auprc": 0.5804393764878749,
+    "macro_auprc": 0.3473355349265784,
+    "cafa_fmax": 0.627,
+    "cafa_threshold": 0.39,
+    "cafa_precision": 0.66,
+    "cafa_recall": 0.598,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.582,
+    "cafa_rc_micro": 0.544,
+    "cafa_f_micro": 0.562,
+    "cafa_smin": 4.868
+  },
+  "best_val_fmax": 0.6592607590709008,
+  "best_epoch": 45,
+  "total_epochs": 50,
+  "train_size": 32421,
+  "val_size": 3587,
+  "test_size": 1137
+}

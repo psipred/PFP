@@ -1,0 +1,32 @@
+{
+  "plm_type": "text",
+  "aspect": "BPO",
+  "embedding_dim": 768,
+  "num_go_terms": 3992,
+  "num_gpus": 1,
+  "effective_batch_size": 16,
+  "seed": 42,
+  "test_metrics": {
+    "fmax": 0.556419663221248,
+    "threshold": 0.41585858585858587,
+    "precision": 0.5701384349764101,
+    "recall": 0.5433455858335489,
+    "micro_auprc": 0.4578496112791059,
+    "macro_auprc": 0.1534641131845415,
+    "cafa_fmax": 0.559,
+    "cafa_threshold": 0.42,
+    "cafa_precision": 0.564,
+    "cafa_recall": 0.554,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.534,
+    "cafa_rc_micro": 0.449,
+    "cafa_f_micro": 0.488,
+    "cafa_smin": 19.879
+  },
+  "best_val_fmax": 0.5420869397907613,
+  "best_epoch": 47,
+  "total_epochs": 50,
+  "train_size": 47691,
+  "val_size": 5252,
+  "test_size": 2392
+}
