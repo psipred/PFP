@@ -1,0 +1,30 @@
+{
+  "experiment_name": "text_prott5_temp_1.5_learned",
+  "modality_pair": "text_prott5",
+  "aspect": "MFO",
+  "temperature_init": 1.5,
+  "temperature_final": 1.6035653352737427,
+  "learnable_temperature": true,
+  "num_go_terms": 677,
+  "seed": 42,
+  "test_metrics": {
+    "fmax": 0.5981097184624351,
+    "threshold": 0.41585858585858587,
+    "precision": 0.5895099230457616,
+    "recall": 0.6069641367806442,
+    "micro_auprc": 0.628635016148279,
+    "macro_auprc": 0.41208922930219405,
+    "cafa_fmax": 0.656,
+    "cafa_threshold": 0.47,
+    "cafa_precision": 0.664,
+    "cafa_recall": 0.648,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.594,
+    "cafa_rc_micro": 0.601,
+    "cafa_f_micro": 0.598,
+    "cafa_smin": 4.641
+  },
+  "best_val_fmax": 0.6623757814574045,
+  "best_epoch": 12,
+  "total_epochs": 17
+}

@@ -1,0 +1,30 @@
+{
+  "experiment_name": "prott5_prostt5_temp_1.5_learned",
+  "modality_pair": "prott5_prostt5",
+  "aspect": "CCO",
+  "temperature_init": 1.5,
+  "temperature_final": 1.636238932609558,
+  "learnable_temperature": true,
+  "num_go_terms": 551,
+  "seed": 42,
+  "test_metrics": {
+    "fmax": 0.6357874207204463,
+    "threshold": 0.5643434343434344,
+    "precision": 0.6646731004485479,
+    "recall": 0.6093078312877664,
+    "micro_auprc": 0.6749252140107728,
+    "macro_auprc": 0.2095331234606232,
+    "cafa_fmax": 0.701,
+    "cafa_threshold": 0.67,
+    "cafa_precision": 0.743,
+    "cafa_recall": 0.663,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.7,
+    "cafa_rc_micro": 0.576,
+    "cafa_f_micro": 0.632,
+    "cafa_smin": 6.226
+  },
+  "best_val_fmax": 0.715166908513144,
+  "best_epoch": 20,
+  "total_epochs": 25
+}

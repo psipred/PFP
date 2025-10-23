@@ -1,0 +1,30 @@
+{
+  "experiment_name": "text_prott5_temp_3.0_fixed",
+  "modality_pair": "text_prott5",
+  "aspect": "CCO",
+  "temperature_init": 3.0,
+  "temperature_final": 3.0,
+  "learnable_temperature": false,
+  "num_go_terms": 551,
+  "seed": 42,
+  "test_metrics": {
+    "fmax": 0.6420773851318995,
+    "threshold": 0.5346464646464646,
+    "precision": 0.6666219569445331,
+    "recall": 0.619276057566503,
+    "micro_auprc": 0.6828437777588665,
+    "macro_auprc": 0.23651540927706438,
+    "cafa_fmax": 0.703,
+    "cafa_threshold": 0.61,
+    "cafa_precision": 0.725,
+    "cafa_recall": 0.682,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.686,
+    "cafa_rc_micro": 0.597,
+    "cafa_f_micro": 0.639,
+    "cafa_smin": 6.164
+  },
+  "best_val_fmax": 0.7175829091156575,
+  "best_epoch": 14,
+  "total_epochs": 19
+}

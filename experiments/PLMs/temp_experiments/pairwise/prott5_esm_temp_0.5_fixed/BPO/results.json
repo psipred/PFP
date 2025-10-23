@@ -1,0 +1,30 @@
+{
+  "experiment_name": "prott5_esm_temp_0.5_fixed",
+  "modality_pair": "prott5_esm",
+  "aspect": "BPO",
+  "temperature_init": 0.5,
+  "temperature_final": 0.5,
+  "learnable_temperature": false,
+  "num_go_terms": 3992,
+  "seed": 42,
+  "test_metrics": {
+    "fmax": 0.4912058135587611,
+    "threshold": 0.39606060606060606,
+    "precision": 0.4849631737301397,
+    "recall": 0.49761126477244083,
+    "micro_auprc": 0.4640985287838823,
+    "macro_auprc": 0.17030306267517328,
+    "cafa_fmax": 0.562,
+    "cafa_threshold": 0.49,
+    "cafa_precision": 0.556,
+    "cafa_recall": 0.568,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.512,
+    "cafa_rc_micro": 0.471,
+    "cafa_f_micro": 0.491,
+    "cafa_smin": 20.023
+  },
+  "best_val_fmax": 0.5081398985923309,
+  "best_epoch": 25,
+  "total_epochs": 30
+}

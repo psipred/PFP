@@ -1,0 +1,30 @@
+{
+  "experiment_name": "prott5_esm_temp_0.5_learned",
+  "modality_pair": "prott5_esm",
+  "aspect": "MFO",
+  "temperature_init": 0.5,
+  "temperature_final": 0.7056530714035034,
+  "learnable_temperature": true,
+  "num_go_terms": 677,
+  "seed": 42,
+  "test_metrics": {
+    "fmax": 0.6010443283581636,
+    "threshold": 0.5544444444444444,
+    "precision": 0.6432818073721683,
+    "recall": 0.5640116763969916,
+    "micro_auprc": 0.6389339776077372,
+    "macro_auprc": 0.4142435146074795,
+    "cafa_fmax": 0.673,
+    "cafa_threshold": 0.55,
+    "cafa_precision": 0.708,
+    "cafa_recall": 0.641,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.62,
+    "cafa_rc_micro": 0.582,
+    "cafa_f_micro": 0.6,
+    "cafa_smin": 4.491
+  },
+  "best_val_fmax": 0.6606914539469549,
+  "best_epoch": 18,
+  "total_epochs": 23
+}

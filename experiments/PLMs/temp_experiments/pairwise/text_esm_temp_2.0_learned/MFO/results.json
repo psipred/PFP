@@ -1,0 +1,30 @@
+{
+  "experiment_name": "text_esm_temp_2.0_learned",
+  "modality_pair": "text_esm",
+  "aspect": "MFO",
+  "temperature_init": 2.0,
+  "temperature_final": 2.1041502952575684,
+  "learnable_temperature": true,
+  "num_go_terms": 677,
+  "seed": 42,
+  "test_metrics": {
+    "fmax": 0.5967691177513175,
+    "threshold": 0.45545454545454545,
+    "precision": 0.6004855393709035,
+    "recall": 0.5930984153461156,
+    "micro_auprc": 0.6291801799083503,
+    "macro_auprc": 0.4094462415927532,
+    "cafa_fmax": 0.658,
+    "cafa_threshold": 0.47,
+    "cafa_precision": 0.667,
+    "cafa_recall": 0.649,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.589,
+    "cafa_rc_micro": 0.607,
+    "cafa_f_micro": 0.598,
+    "cafa_smin": 4.589
+  },
+  "best_val_fmax": 0.6563869161559235,
+  "best_epoch": 21,
+  "total_epochs": 26
+}

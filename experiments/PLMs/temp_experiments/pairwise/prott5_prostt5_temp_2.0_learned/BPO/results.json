@@ -1,0 +1,30 @@
+{
+  "experiment_name": "prott5_prostt5_temp_2.0_learned",
+  "modality_pair": "prott5_prostt5",
+  "aspect": "BPO",
+  "temperature_init": 2.0,
+  "temperature_final": 2.1586594581604004,
+  "learnable_temperature": true,
+  "num_go_terms": 3992,
+  "seed": 42,
+  "test_metrics": {
+    "fmax": 0.49730834551817166,
+    "threshold": 0.4257575757575757,
+    "precision": 0.5129004483239801,
+    "recall": 0.482636269661665,
+    "micro_auprc": 0.4757088444097435,
+    "macro_auprc": 0.1670475025437655,
+    "cafa_fmax": 0.567,
+    "cafa_threshold": 0.49,
+    "cafa_precision": 0.565,
+    "cafa_recall": 0.568,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.526,
+    "cafa_rc_micro": 0.472,
+    "cafa_f_micro": 0.497,
+    "cafa_smin": 19.767
+  },
+  "best_val_fmax": 0.5080019083435581,
+  "best_epoch": 25,
+  "total_epochs": 30
+}

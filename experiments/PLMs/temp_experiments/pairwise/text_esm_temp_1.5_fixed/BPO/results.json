@@ -1,0 +1,30 @@
+{
+  "experiment_name": "text_esm_temp_1.5_fixed",
+  "modality_pair": "text_esm",
+  "aspect": "BPO",
+  "temperature_init": 1.5,
+  "temperature_final": 1.5,
+  "learnable_temperature": false,
+  "num_go_terms": 3992,
+  "seed": 42,
+  "test_metrics": {
+    "fmax": 0.5038203831639576,
+    "threshold": 0.44555555555555554,
+    "precision": 0.5313826984471367,
+    "recall": 0.4789763361551134,
+    "micro_auprc": 0.48664904458871544,
+    "macro_auprc": 0.1733665132393772,
+    "cafa_fmax": 0.58,
+    "cafa_threshold": 0.52,
+    "cafa_precision": 0.6,
+    "cafa_recall": 0.562,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.562,
+    "cafa_rc_micro": 0.458,
+    "cafa_f_micro": 0.505,
+    "cafa_smin": 19.139
+  },
+  "best_val_fmax": 0.5104623776264691,
+  "best_epoch": 17,
+  "total_epochs": 22
+}
