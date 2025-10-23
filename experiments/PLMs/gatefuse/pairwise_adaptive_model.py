@@ -9,7 +9,8 @@ class PairwiseModalityAdaptiveFusion(nn.Module):
     def __init__(self, modality_pair, dim_config, 
                  hidden_dim=384, num_go_terms=677, dropout=0.3,
                  use_diversity_loss=False, diversity_weight=0.01,
-                 gate_entropy_weight=0.001):
+                 gate_entropy_weight=0.001,
+                 temperature=1.5, learnable_temperature=True):  # ADD THESE
         super().__init__()
         
         self.modality_pair = modality_pair  # e.g., 'text_prott5', 'text_esm', 'prott5_esm'
@@ -47,7 +48,13 @@ class PairwiseModalityAdaptiveFusion(nn.Module):
             nn.Linear(hidden_dim, 2)
         )
         
-        self.temperature = nn.Parameter(torch.tensor(1.5))
+        # self.temperature = nn.Parameter(torch.tensor(1.5))
+
+
+        if learnable_temperature:
+            self.temperature = nn.Parameter(torch.tensor(temperature))
+        else:
+            self.register_buffer('temperature', torch.tensor(temperature))
         
         # Gate adjuster
         self.gate_adjuster = nn.Sequential(

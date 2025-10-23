@@ -1,0 +1,36 @@
+{
+  "model_type": "concat_baseline",
+  "aspect": "MFO",
+  "num_go_terms": 677,
+  "seed": 42,
+  "architecture": "simple_concatenation",
+  "input_dim": 3072,
+  "modalities": [
+    "text",
+    "prott5",
+    "esm"
+  ],
+  "test_metrics": {
+    "fmax": 0.6038631346080024,
+    "threshold": 0.46535353535353535,
+    "precision": 0.6415337711069343,
+    "recall": 0.5703711426188431,
+    "micro_auprc": 0.6305774204861865,
+    "macro_auprc": 0.3931981381519757,
+    "cafa_fmax": 0.667,
+    "cafa_threshold": 0.47,
+    "cafa_precision": 0.696,
+    "cafa_recall": 0.64,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.628,
+    "cafa_rc_micro": 0.582,
+    "cafa_f_micro": 0.604,
+    "cafa_smin": 4.486
+  },
+  "best_val_fmax": 0.6512327428352114,
+  "best_epoch": 19,
+  "total_epochs": 24,
+  "train_size": 32421,
+  "val_size": 3587,
+  "test_size": 1137
+}

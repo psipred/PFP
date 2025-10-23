@@ -1,0 +1,36 @@
+{
+  "model_type": "concat_baseline",
+  "aspect": "CCO",
+  "num_go_terms": 551,
+  "seed": 42,
+  "architecture": "simple_concatenation",
+  "input_dim": 3072,
+  "modalities": [
+    "text",
+    "prott5",
+    "esm"
+  ],
+  "test_metrics": {
+    "fmax": 0.6299606720988208,
+    "threshold": 0.6534343434343434,
+    "precision": 0.6585349279695525,
+    "recall": 0.6037630054202193,
+    "micro_auprc": 0.6740254001712934,
+    "macro_auprc": 0.19517877959397403,
+    "cafa_fmax": 0.693,
+    "cafa_threshold": 0.68,
+    "cafa_precision": 0.702,
+    "cafa_recall": 0.684,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.664,
+    "cafa_rc_micro": 0.602,
+    "cafa_f_micro": 0.632,
+    "cafa_smin": 6.325
+  },
+  "best_val_fmax": 0.7109422154930984,
+  "best_epoch": 18,
+  "total_epochs": 23,
+  "train_size": 45309,
+  "val_size": 4985,
+  "test_size": 1265
+}

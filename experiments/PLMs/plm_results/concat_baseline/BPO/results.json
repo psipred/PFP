@@ -1,0 +1,36 @@
+{
+  "model_type": "concat_baseline",
+  "aspect": "BPO",
+  "num_go_terms": 3992,
+  "seed": 42,
+  "architecture": "simple_concatenation",
+  "input_dim": 3072,
+  "modalities": [
+    "text",
+    "prott5",
+    "esm"
+  ],
+  "test_metrics": {
+    "fmax": 0.4986013734084976,
+    "threshold": 0.45545454545454545,
+    "precision": 0.5137746558188465,
+    "recall": 0.484298605872656,
+    "micro_auprc": 0.4863662237923457,
+    "macro_auprc": 0.17115704088499126,
+    "cafa_fmax": 0.577,
+    "cafa_threshold": 0.55,
+    "cafa_precision": 0.601,
+    "cafa_recall": 0.555,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.555,
+    "cafa_rc_micro": 0.461,
+    "cafa_f_micro": 0.503,
+    "cafa_smin": 19.333
+  },
+  "best_val_fmax": 0.509939507967737,
+  "best_epoch": 24,
+  "total_epochs": 29,
+  "train_size": 47691,
+  "val_size": 5252,
+  "test_size": 2392
+}
