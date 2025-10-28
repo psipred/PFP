@@ -1,0 +1,49 @@
+{
+  "ablation_name": "09_with_diversity_loss",
+  "ablation_description": "Full model + diversity loss",
+  "modality_pair": "text_prott5",
+  "aspect": "BPO",
+  "num_go_terms": 3992,
+  "num_parameters": 7901853,
+  "seed": 42,
+  "model_config": {
+    "use_adaptive_gates": true,
+    "use_gate_adjuster": true,
+    "use_interaction": true,
+    "use_diversity_loss": true,
+    "diversity_weight": 0.01,
+    "use_gate_entropy": true,
+    "learnable_temperature": true,
+    "temperature": 1.5,
+    "gate_entropy_weight": 0.001
+  },
+  "test_metrics": {
+    "fmax": 0.5182626080960904,
+    "threshold": 0.46535353535353535,
+    "precision": 0.546922754704686,
+    "recall": 0.4924566255971831,
+    "micro_auprc": 0.5074179850761382,
+    "macro_auprc": 0.17760494257741255,
+    "text_mean": 0.5689459443092346,
+    "text_std": 0.06607603281736374,
+    "prott5_mean": 0.4310540556907654,
+    "prott5_std": 0.06607603281736374,
+    "cafa_fmax": 0.592,
+    "cafa_threshold": 0.59,
+    "cafa_precision": 0.639,
+    "cafa_recall": 0.551,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.603,
+    "cafa_rc_micro": 0.45,
+    "cafa_f_micro": 0.516,
+    "cafa_smin": 18.663
+  },
+  "best_val_fmax": 0.5176690675289624,
+  "best_epoch": 17,
+  "total_epochs": 22,
+  "dataset_sizes": {
+    "train": 47691,
+    "val": 5252,
+    "test": 2392
+  }
+}

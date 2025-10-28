@@ -1,0 +1,48 @@
+{
+  "ablation_name": "02_no_gate_adjuster",
+  "ablation_description": "Remove gate adjustment mechanism",
+  "modality_pair": "text_prott5",
+  "aspect": "BPO",
+  "num_go_terms": 3992,
+  "num_parameters": 7638939,
+  "seed": 42,
+  "model_config": {
+    "use_adaptive_gates": true,
+    "use_gate_adjuster": false,
+    "use_interaction": true,
+    "use_diversity_loss": false,
+    "use_gate_entropy": true,
+    "learnable_temperature": true,
+    "temperature": 1.5,
+    "gate_entropy_weight": 0.001
+  },
+  "test_metrics": {
+    "fmax": 0.5070631130797072,
+    "threshold": 0.41585858585858587,
+    "precision": 0.5120429586793332,
+    "recall": 0.5021791970497017,
+    "micro_auprc": 0.4933994788666385,
+    "macro_auprc": 0.18040805627122997,
+    "text_mean": 0.49310746788978577,
+    "text_std": 0.05670393258333206,
+    "prott5_mean": 0.5068925619125366,
+    "prott5_std": 0.05670393258333206,
+    "cafa_fmax": 0.575,
+    "cafa_threshold": 0.48,
+    "cafa_precision": 0.561,
+    "cafa_recall": 0.589,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.527,
+    "cafa_rc_micro": 0.49,
+    "cafa_f_micro": 0.508,
+    "cafa_smin": 19.431
+  },
+  "best_val_fmax": 0.5171528905214442,
+  "best_epoch": 17,
+  "total_epochs": 22,
+  "dataset_sizes": {
+    "train": 47691,
+    "val": 5252,
+    "test": 2392
+  }
+}

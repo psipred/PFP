@@ -39,74 +39,154 @@ class PairwiseModalityDataset(Dataset):
         if cache_embeddings:
             print(f"Caching embeddings in memory...")
             self._cache_all_embeddings()
-    
+        
     def _load_embedding(self, emb_file):
-        """Load embedding from file."""
-        try:
-            embedding = np.load(emb_file, allow_pickle=False)
-        except (ValueError, OSError):
-            data = np.load(emb_file, allow_pickle=True)
-            
-            if isinstance(data, dict):
-                if 'embedding' in data:
-                    embedding = data['embedding']
-                elif 'embeddings' in data:
-                    embedding = data['embeddings']
-                elif 'mean' in data:
-                    embedding = data['mean']
-                else:
-                    embedding = next(v for v in data.values() if isinstance(v, np.ndarray))
-            elif isinstance(data, np.ndarray):
-                embedding = data
-                if embedding.dtype == object:
-                    if embedding.shape == () or embedding.shape == (1,):
-                        embedding = embedding.item()
-                        if isinstance(embedding, dict):
-                            embedding = next(v for v in embedding.values() if isinstance(v, np.ndarray))
+        """Load embedding from .npy or .npz and return a 1D float32 vector."""
+        import numpy as np
+
+        emb_file = str(emb_file)
+        data = np.load(emb_file, allow_pickle=True, mmap_mode=None)
+
+        # Handle .npz (NpzFile) vs .npy (ndarray / object)
+        if hasattr(data, 'files'):  # np.lib.npyio.NpzFile
+            # Try common keys first, then fall back to the first array-like value
+            for k in ('embedding', 'embeddings', 'mean', 'avg', 'pooled'):
+                if k in data.files:
+                    embedding = data[k]
+                    break
             else:
-                raise ValueError(f"Unexpected type: {type(data)}")
+                # take first entry
+                first_key = data.files[0]
+                embedding = data[first_key]
+        else:
+            embedding = data  # ndarray or object array
+
+        # If it’s a 0-d object that actually contains a dict/array, unwrap it
+        if isinstance(embedding, np.ndarray) and embedding.dtype == object:
+            # Possible cases: array(dict), array(list), scalar object
+            if embedding.shape == () or embedding.shape == (1,):
+                embedding = embedding.item()
+            # If still object after item(), try to find an ndarray inside
+            if not isinstance(embedding, np.ndarray):
+                if isinstance(embedding, dict):
+                    # prefer usual keys; else first ndarray value
+                    for k in ('embedding', 'embeddings', 'mean', 'avg', 'pooled'):
+                        if k in embedding and isinstance(embedding[k], np.ndarray):
+                            embedding = embedding[k]
+                            break
+                    else:
+                        embedding = next(
+                            (v for v in embedding.values() if isinstance(v, np.ndarray)),
+                            None
+                        )
+                elif isinstance(embedding, (list, tuple)):
+                    # e.g., list of vectors -> stack then pool
+                    embedding = np.array(embedding)
         
+        if embedding is None:
+            raise ValueError(f"Could not find a numeric embedding in {emb_file}")
+
+        # At this point embedding should be an ndarray; coerce dtype
         if not isinstance(embedding, np.ndarray):
-            embedding = np.array(embedding, dtype=np.float32)
-        
-        if embedding.dtype not in [np.float32, np.float64]:
-            embedding = embedding.astype(np.float32)
-        
-        if embedding.ndim > 1:
-            if embedding.shape[0] == 1 or embedding.shape[1] == 1:
+            embedding = np.array(embedding)
+
+        if embedding.dtype not in (np.float32, np.float64):
+            # This will fail loudly if it cannot be cast -> good (we'll catch upstream)
+            embedding = embedding.astype(np.float32, copy=False)
+        else:
+            embedding = embedding.astype(np.float32, copy=False)
+
+        # Shape handling:
+        # - 1D: ok
+        # - 2D sequence x dim: mean-pool across sequence axis if it looks like (L, D)
+        # - (1, D) or (D, 1): squeeze
+        if embedding.ndim == 2:
+            # If it's (1, D) / (D, 1), squeeze; else assume (L, D) and mean-pool L
+            if 1 in embedding.shape:
                 embedding = embedding.squeeze()
-            elif embedding.shape[0] > embedding.shape[1]:
-                embedding = embedding.mean(axis=0)
-        
+            else:
+                # Heuristic: pool the longer axis as sequence length
+                seq_axis = 0 if embedding.shape[0] >= embedding.shape[1] else 1
+                if seq_axis == 0:
+                    embedding = embedding.mean(axis=0)
+                else:
+                    embedding = embedding.mean(axis=1)
+        elif embedding.ndim > 2:
+            # Too many dims -> fallback to global mean
+            embedding = embedding.mean(axis=tuple(range(embedding.ndim - 1)))
+
+        if embedding.ndim != 1:
+            # Final sanity check
+            embedding = embedding.reshape(-1)
+
         return embedding
-    
+
+
     def _cache_all_embeddings(self):
-        """Load all embeddings into memory."""
+        """Load all embeddings into memory with proper error reporting."""
+        import torch
+
         missing = {self.mod1_name: [], self.mod2_name: []}
-        
+        failed  = {self.mod1_name: [], self.mod2_name: []}
+        loaded_count = 0
+
         for idx, protein_id in enumerate(tqdm(self.protein_ids, desc="Loading embeddings")):
             mod1_file = self.mod1_dir / f"{protein_id}.npy"
             mod2_file = self.mod2_dir / f"{protein_id}.npy"
-            
+
             try:
-                mod1_emb = torch.FloatTensor(self._load_embedding(mod1_file))
-                mod2_emb = torch.FloatTensor(self._load_embedding(mod2_file))
-                
+                if not mod1_file.exists():
+                    missing[self.mod1_name].append(protein_id)
+                    raise FileNotFoundError(str(mod1_file))
+                if not mod2_file.exists():
+                    missing[self.mod2_name].append(protein_id)
+                    raise FileNotFoundError(str(mod2_file))
+
+                mod1_emb = torch.from_numpy(self._load_embedding(mod1_file)).float()
+                mod2_emb = torch.from_numpy(self._load_embedding(mod2_file)).float()
+
                 self.embedding_cache[idx] = {
                     self.mod1_name: mod1_emb,
                     self.mod2_name: mod2_emb
                 }
+                loaded_count += 1
+
+            except FileNotFoundError:
+                # already recorded in `missing`
+                continue
             except Exception as e:
-                if not mod1_file.exists():
-                    missing[self.mod1_name].append(protein_id)
-                if not mod2_file.exists():
-                    missing[self.mod2_name].append(protein_id)
-        
+                # File exists but parsing/shape/dtype failed
+                # Record which modality failed
+                try:
+                    # probe individually to attribute failure
+                    if mod1_file.exists():
+                        try:
+                            _ = self._load_embedding(mod1_file)
+                        except Exception:
+                            failed[self.mod1_name].append(protein_id)
+                    if mod2_file.exists():
+                        try:
+                            _ = self._load_embedding(mod2_file)
+                        except Exception:
+                            failed[self.mod2_name].append(protein_id)
+                except Exception:
+                    # if even probing fails, mark both to be safe
+                    if mod1_file.exists(): failed[self.mod1_name].append(protein_id)
+                    if mod2_file.exists(): failed[self.mod2_name].append(protein_id)
+                # Optional: log the actual error for the first few cases
+                if loaded_count < 3:  # avoid spamming
+                    print(f"[ERROR] {protein_id}: {e}")
+
+        # Summary
         for modality, ids in missing.items():
             if ids:
-                print(f"WARNING: {len(ids)} {modality} embeddings missing")
-        
-        print(f"Successfully cached {len(self.embedding_cache)}/{len(self.protein_ids)} proteins")
+                print(f"WARNING: {len(ids)} {modality} embeddings MISSING (files not found)")
+        for modality, ids in failed.items():
+            if ids:
+                print(f"WARNING: {len(ids)} {modality} embeddings FAILED to load (parse/shape/dtype)")
+
+        print(f"Successfully cached {loaded_count}/{len(self.protein_ids)} proteins")
+
     
     def __len__(self):
         return len(self.protein_ids)

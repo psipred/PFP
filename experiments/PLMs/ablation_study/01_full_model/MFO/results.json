@@ -1,0 +1,48 @@
+{
+  "ablation_name": "01_full_model",
+  "ablation_description": "Full model with all components",
+  "modality_pair": "text_prott5",
+  "aspect": "MFO",
+  "num_go_terms": 677,
+  "num_parameters": 4503978,
+  "seed": 42,
+  "model_config": {
+    "use_adaptive_gates": true,
+    "use_gate_adjuster": true,
+    "use_interaction": true,
+    "use_diversity_loss": false,
+    "use_gate_entropy": true,
+    "learnable_temperature": true,
+    "temperature": 1.5,
+    "gate_entropy_weight": 0.001
+  },
+  "test_metrics": {
+    "fmax": 0.6097960073680129,
+    "threshold": 0.5445454545454546,
+    "precision": 0.6394417753374441,
+    "recall": 0.5827773144286845,
+    "micro_auprc": 0.6427157873204292,
+    "macro_auprc": 0.4167496670437541,
+    "text_mean": 0.44003233313560486,
+    "text_std": 0.06680671870708466,
+    "prott5_mean": 0.5599676370620728,
+    "prott5_std": 0.06680671870708466,
+    "cafa_fmax": 0.668,
+    "cafa_threshold": 0.66,
+    "cafa_precision": 0.745,
+    "cafa_recall": 0.605,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.68,
+    "cafa_rc_micro": 0.553,
+    "cafa_f_micro": 0.61,
+    "cafa_smin": 4.357
+  },
+  "best_val_fmax": 0.6624228494194913,
+  "best_epoch": 13,
+  "total_epochs": 18,
+  "dataset_sizes": {
+    "train": 32421,
+    "val": 3587,
+    "test": 1137
+  }
+}
