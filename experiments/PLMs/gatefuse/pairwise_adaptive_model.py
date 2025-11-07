@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 class PairwiseModalityAdaptiveFusion(nn.Module):
     def __init__(self, modality_pair, dim_config, 
-                 hidden_dim=384, num_go_terms=677, dropout=0.3,
+                 hidden_dim=512, num_go_terms=677, dropout=0.3,
                  use_diversity_loss=False, diversity_weight=0.01,
                  gate_entropy_weight=0.001,
                  temperature=1.5, learnable_temperature=True):  # ADD THESE

@@ -253,13 +253,13 @@ def train_model(modality_pair, aspect, use_diversity_loss=False, diversity_weigh
     # Setup directories
     data_dir = Path("/home/zijianzhou/project/PFP/experiments/PLMs/data")
     embedding_dirs = {
-        'text': '/home/zijianzhou/project/PFP/experiments/PLMs/embedding_cache/text',
-        'prott5': '/home/zijianzhou/project/PFP/experiments/PLMs/embedding_cache/prott5',
-        'prostt5': '/home/zijianzhou/project/PFP/experiments/PLMs/embedding_cache/prostt5',
-        'esm': '/home/zijianzhou/project/PFP/experiments/PLMs/embedding_cache/esm'
+        'text': '/home/zijianzhou/project/PFP/experiments/PLMs/data/embedding_cache/text',
+        'prott5': '/home/zijianzhou/project/PFP/experiments/PLMs/data/embedding_cache/prott5',
+        'prostt5': '/home/zijianzhou/project/PFP/experiments/PLMs/data/embedding_cache/prostt5',
+        'esm': '/home/zijianzhou/project/PFP/experiments/PLMs/data/embedding_cache/esm'
     }
     
-    output_dir = Path(f"/home/zijianzhou/project/PFP/experiments/PLMs/plm_results/{exp_name}/{aspect}")
+    output_dir = Path(f"/home/zijianzhou/project/PFP/experiments/PLMs/plm_results/pair/{exp_name}/{aspect}")
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Load datasets

@@ -1,0 +1,33 @@
+{
+  "model_type": "pairwise_adaptive_fusion",
+  "modality_pair": "prott5_esm",
+  "experiment_name": "prott5_esm_fusion_div",
+  "aspect": "BPO",
+  "num_go_terms": 3992,
+  "seed": 42,
+  "use_diversity_loss": true,
+  "diversity_weight": 0.01,
+  "test_metrics": {
+    "fmax": 0.5039969330315559,
+    "threshold": 0.41585858585858587,
+    "precision": 0.5124148285021357,
+    "recall": 0.4958511440784504,
+    "micro_auprc": 0.48779545673513836,
+    "macro_auprc": 0.1651885528187076,
+    "cafa_fmax": 0.57,
+    "cafa_threshold": 0.56,
+    "cafa_precision": 0.614,
+    "cafa_recall": 0.531,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.583,
+    "cafa_rc_micro": 0.435,
+    "cafa_f_micro": 0.498,
+    "cafa_smin": 19.281
+  },
+  "best_val_fmax": 0.5063131786770884,
+  "best_epoch": 18,
+  "total_epochs": 23,
+  "train_size": 47691,
+  "val_size": 5252,
+  "test_size": 2392
+}
