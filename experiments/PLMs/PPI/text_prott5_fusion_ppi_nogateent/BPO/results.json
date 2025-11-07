@@ -1,0 +1,44 @@
+{
+  "model_type": "pairwise_with_ppi",
+  "modality_pair": "text_prott5",
+  "use_ppi": true,
+  "aspect": "BPO",
+  "num_go_terms": 3992,
+  "num_parameters": 8690845,
+  "seed": 42,
+  "regularization": {
+    "diversity_loss": false,
+    "diversity_weight": null,
+    "gate_entropy": false,
+    "gate_entropy_weight": null
+  },
+  "test_metrics": {
+    "fmax": 0.5173341619144262,
+    "threshold": 0.43565656565656563,
+    "precision": 0.5231457015125754,
+    "recall": 0.5116503226887932,
+    "micro_auprc": 0.5014797530739342,
+    "macro_auprc": 0.20821913483697482,
+    "text_mean": 0.4310902953147888,
+    "text_std": 0.07320253551006317,
+    "prott5_mean": 0.5689097046852112,
+    "prott5_std": 0.07320253551006317,
+    "cafa_fmax": 0.591,
+    "cafa_threshold": 0.61,
+    "cafa_precision": 0.626,
+    "cafa_recall": 0.56,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.579,
+    "cafa_rc_micro": 0.461,
+    "cafa_f_micro": 0.513,
+    "cafa_smin": 18.921
+  },
+  "best_val_fmax": 0.5575095132633154,
+  "best_epoch": 18,
+  "total_epochs": 23,
+  "dataset_sizes": {
+    "train": 47691,
+    "val": 5252,
+    "test": 2392
+  }
+}

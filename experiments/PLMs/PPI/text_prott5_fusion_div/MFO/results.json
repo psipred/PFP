@@ -1,0 +1,44 @@
+{
+  "model_type": "pairwise_with_ppi",
+  "modality_pair": "text_prott5",
+  "use_ppi": false,
+  "aspect": "MFO",
+  "num_go_terms": 677,
+  "num_parameters": 4503978,
+  "seed": 42,
+  "regularization": {
+    "diversity_loss": true,
+    "diversity_weight": 0.01,
+    "gate_entropy": true,
+    "gate_entropy_weight": 0.001
+  },
+  "test_metrics": {
+    "fmax": 0.6164323852611994,
+    "threshold": 0.5148484848484849,
+    "precision": 0.6456288518602985,
+    "recall": 0.5897623019182591,
+    "micro_auprc": 0.6477556331243706,
+    "macro_auprc": 0.4237081856122707,
+    "text_mean": 0.5877840518951416,
+    "text_std": 0.0569029375910759,
+    "prott5_mean": 0.412215918302536,
+    "prott5_std": 0.056902941316366196,
+    "cafa_fmax": 0.689,
+    "cafa_threshold": 0.61,
+    "cafa_precision": 0.749,
+    "cafa_recall": 0.637,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.673,
+    "cafa_rc_micro": 0.567,
+    "cafa_f_micro": 0.615,
+    "cafa_smin": 4.331
+  },
+  "best_val_fmax": 0.6630855066324535,
+  "best_epoch": 18,
+  "total_epochs": 23,
+  "dataset_sizes": {
+    "train": 32421,
+    "val": 3587,
+    "test": 1137
+  }
+}
