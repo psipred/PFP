@@ -1,4 +1,4 @@
-"""Training script for pairwise modality adaptive fusion with optional PPI."""
+"""Training script for improved pairwise fusion model with CAFA evaluation."""
 
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -13,8 +13,9 @@ import numpy as np
 import pandas as pd
 import sys
 from pathlib import Path
+import torch.nn.functional as F  # Add this at the top with other imports
 
-from pairwise_adaptive_model import PairwiseModalityAdaptiveFusion
+from pairwise_adaptive_model import ImprovedPairwiseModalityFusion, ClassBalancedBCELoss
 from pairwise_dataset import PairwiseModalityDataset, collate_fn
 sys.path.append('/home/zijianzhou/project/PFP/experiments/PLMs')
 from cafa3_config import CAFA3Config
@@ -84,10 +85,13 @@ def compute_auprc(y_true, y_pred):
     return micro_auprc, macro_auprc
 
 
-def train_epoch(model, loader, optimizer, criterion, device, 
-                diversity_weight=0.0, gate_entropy_weight=0.0):
+def train_epoch(model, loader, optimizer, criterion, scheduler, device, config):
+    """Train for one epoch."""
     model.train()
     total_loss = 0
+    total_main_loss = 0
+    total_decorr_loss = 0
+    total_entropy_loss = 0
     
     for batch in tqdm(loader, desc="Training", leave=False):
         mod1 = batch['mod1'].to(device)
@@ -96,57 +100,31 @@ def train_epoch(model, loader, optimizer, criterion, device,
         ppi_flag = batch['ppi_flag'].to(device) if 'ppi_flag' in batch else None
         labels = batch['labels'].to(device)
         
-        logits, diversity_loss, gate_entropy_loss = model(mod1, mod2, ppi, ppi_flag)
-        loss = criterion(logits, labels)
+        logits, decorr_loss, entropy_loss = model(mod1, mod2, ppi, ppi_flag)
+        main_loss = criterion(logits, labels)
         
-        if diversity_loss is not None:
-            loss = loss + diversity_weight * diversity_loss
-        
-        if gate_entropy_loss is not None:
-            loss = loss + gate_entropy_weight * gate_entropy_loss
+        loss = main_loss
+        if decorr_loss is not None:
+            loss = loss + config['decorr_weight'] * decorr_loss
+            total_decorr_loss += decorr_loss.item()
+        if entropy_loss is not None:
+            loss = loss + config['entropy_weight'] * entropy_loss
+            total_entropy_loss += entropy_loss.item()
         
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), config['gradient_clip'])
         optimizer.step()
+        scheduler.step()
         
         total_loss += loss.item()
-    
-    return total_loss / len(loader)
-
-
-def log_gate_statistics(model, loader, device):
-    """Log gate behavior on validation set."""
-    model.eval()
-    all_gate1 = []
-    all_gate2 = []
-    
-    with torch.no_grad():
-        for batch in loader:
-            mod1 = batch['mod1'].to(device)
-            mod2 = batch['mod2'].to(device)
-            
-            h1 = model.mod1_transform(mod1)
-            h2 = model.mod2_transform(mod2)
-            
-            g1, g2 = model.compute_adaptive_gates(h1, h2)
-            
-            all_gate1.append(g1.cpu())
-            all_gate2.append(g2.cpu())
-    
-    gate1_mean = torch.cat(all_gate1).mean().item()
-    gate2_mean = torch.cat(all_gate2).mean().item()
-    gate1_std = torch.cat(all_gate1).std().item()
-    gate2_std = torch.cat(all_gate2).std().item()
-    
-    print(f"  Gate stats: {model.mod1_name}={gate1_mean:.3f}±{gate1_std:.3f}, "
-          f"{model.mod2_name}={gate2_mean:.3f}±{gate2_std:.3f}")
+        total_main_loss += main_loss.item()
     
     return {
-        f'gate_{model.mod1_name}_mean': gate1_mean,
-        f'gate_{model.mod1_name}_std': gate1_std,
-        f'gate_{model.mod2_name}_mean': gate2_mean,
-        f'gate_{model.mod2_name}_std': gate2_std
+        'total_loss': total_loss / len(loader),
+        'main_loss': total_main_loss / len(loader),
+        'decorr_loss': total_decorr_loss / len(loader) if total_decorr_loss > 0 else 0,
+        'entropy_loss': total_entropy_loss / len(loader) if total_entropy_loss > 0 else 0
     }
 
 
@@ -181,8 +159,50 @@ def evaluate(model, loader, criterion, device):
     return total_loss / len(loader), fmax, threshold, precision, recall, micro_auprc, macro_auprc
 
 
-def evaluate_with_cafa_pairwise(model, loader, device, protein_ids, go_terms, obo_file, output_dir, dim_config, use_ppi):
-    """CAFA evaluation wrapper for pairwise modality model with optional PPI."""
+def log_gate_statistics(model, loader, device):
+    """Log gate behavior statistics."""
+    model.eval()
+    all_gates = []
+    
+    with torch.no_grad():
+        for batch in loader:
+            mod1 = batch['mod1'].to(device)
+            mod2 = batch['mod2'].to(device)
+            ppi_flag = batch['ppi_flag'].to(device) if 'ppi_flag' in batch else None
+            
+            h1 = model.mod1_transform(mod1)
+            h2 = model.mod2_transform(mod2)
+            
+            if model.use_ppi and ppi_flag is not None:
+                gate_input = torch.cat([h1, h2, ppi_flag], dim=-1)
+            else:
+                gate_input = torch.cat([h1, h2], dim=-1)
+            
+            gate_logits = model.gate_network(gate_input)
+            temperature = F.softplus(model.temperature) + 0.5
+            gates = F.softmax(gate_logits / temperature, dim=-1)
+            
+            all_gates.append(gates.cpu())
+    
+    all_gates = torch.cat(all_gates)
+    gate1_mean = all_gates[:, 0].mean().item()
+    gate1_std = all_gates[:, 0].std().item()
+    gate2_mean = all_gates[:, 1].mean().item()
+    gate2_std = all_gates[:, 1].std().item()
+    
+    print(f"  Gate stats: {model.mod1_name}={gate1_mean:.3f}±{gate1_std:.3f}, "
+          f"{model.mod2_name}={gate2_mean:.3f}±{gate2_std:.3f}")
+    
+    return {
+        f'gate_{model.mod1_name}_mean': gate1_mean,
+        f'gate_{model.mod1_name}_std': gate1_std,
+        f'gate_{model.mod2_name}_mean': gate2_mean,
+        f'gate_{model.mod2_name}_std': gate2_std
+    }
+
+
+def evaluate_with_cafa_improved(model, loader, device, protein_ids, go_terms, obo_file, output_dir, dim_config, use_ppi):
+    """CAFA evaluation wrapper for improved model."""
     try:
         sys.path.append(str(Path(__file__).resolve().parents[3]))
         from text.utils.cafa_evaluation import evaluate_with_cafa
@@ -192,7 +212,7 @@ def evaluate_with_cafa_pairwise(model, loader, device, protein_ids, go_terms, ob
         dim2 = dim_config[mod2]
         ppi_dim = 512
         
-        class PairwiseToSingleBatch:
+        class ImprovedToSingleBatch:
             def __init__(self, loader, use_ppi):
                 self.loader = loader
                 self.use_ppi = use_ppi
@@ -220,9 +240,9 @@ def evaluate_with_cafa_pairwise(model, loader, device, protein_ids, go_terms, ob
                 return len(self.loader)
         
         class ModelWrapper(nn.Module):
-            def __init__(self, pairwise_model, dim1, dim2, use_ppi, ppi_dim=512):
+            def __init__(self, improved_model, dim1, dim2, use_ppi, ppi_dim=512):
                 super().__init__()
-                self.model = pairwise_model
+                self.model = improved_model
                 self.dim1 = dim1
                 self.dim2 = dim2
                 self.use_ppi = use_ppi
@@ -242,7 +262,7 @@ def evaluate_with_cafa_pairwise(model, loader, device, protein_ids, go_terms, ob
                 return logits
         
         wrapped_model = ModelWrapper(model, dim1, dim2, use_ppi, ppi_dim).to(device)
-        wrapped_loader = PairwiseToSingleBatch(loader, use_ppi)
+        wrapped_loader = ImprovedToSingleBatch(loader, use_ppi)
         
         return evaluate_with_cafa(
             model=wrapped_model,
@@ -252,7 +272,7 @@ def evaluate_with_cafa_pairwise(model, loader, device, protein_ids, go_terms, ob
             go_terms=go_terms,
             obo_file=obo_file,
             output_dir=output_dir,
-            model_type='pairwise_fusion',
+            model_type='improved_fusion',
             model_name=f"{model.modality_pair}_{'ppi' if use_ppi else 'base'}"
         )
     except Exception as e:
@@ -262,39 +282,29 @@ def evaluate_with_cafa_pairwise(model, loader, device, protein_ids, go_terms, ob
         return {}
 
 
-def train_model(modality_pair, aspect, use_ppi=False,
-                use_diversity_loss=False, diversity_weight=0.01,
-                use_gate_entropy=True, gate_entropy_weight=0.001):
-    """Main training function."""
+def train_improved_model(modality_pair, aspect, use_ppi=True):
+    """Main training function for improved model."""
     seed = 42
     set_seed(seed)
     
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
-    # Experiment name
-    exp_name = f"{modality_pair}_fusion"
-    if use_ppi:
-        exp_name += "_ppi"
-    if use_diversity_loss and use_gate_entropy:
-        exp_name += "_div_entropy"
-    elif use_diversity_loss:
-        exp_name += "_div_noentropy"
-    elif not use_gate_entropy:
-        exp_name += "_nolosses"
-    
-    print(f"\n{'='*70}")
-    print(f"Training Pairwise Adaptive Fusion: {modality_pair.upper()}")
-    print(f"Aspect: {aspect}")
-    print(f"Experiment: {exp_name}")
-    print(f"PPI: {'ENABLED' if use_ppi else 'DISABLED'}")
-    print(f"Regularization:")
-    print(f"  - Diversity Loss: {'ENABLED' if use_diversity_loss else 'DISABLED'}" + 
-          (f" (weight={diversity_weight})" if use_diversity_loss else ""))
-    print(f"  - Gate Entropy: {'ENABLED' if use_gate_entropy else 'DISABLED'}" + 
-          (f" (weight={gate_entropy_weight})" if use_gate_entropy else ""))
-    print(f"Device: {device}")
-    print(f"Seed: {seed}")
-    print(f"{'='*70}")
+    # Configuration
+    config = {
+        'hidden_dim': 512,
+        'dropout': 0.3,
+        'modality_dropout': 0.1,
+        'ppi_dropout': 0.4,
+        'decorr_weight': 0.01,
+        'entropy_weight': 0.01,
+        'lr': 3e-4,
+        'weight_decay': 0.01,
+        'batch_size': 32,
+        'max_epochs': 50,
+        'patience': 7,
+        'gradient_clip': 1.0,
+        'warmup_ratio': 0.1
+    }
     
     # Dimension configuration
     dim_config = {
@@ -314,100 +324,129 @@ def train_model(modality_pair, aspect, use_ppi=False,
         'ppi': '/home/zijianzhou/project/PFP/experiments/PLMs/data/embedding_cache/ppi'
     }
     
-    output_dir = Path(f"/home/zijianzhou/project/PFP/experiments/PLMs/gatefuse/results/{exp_name}/{aspect}")
+    exp_name = f"{modality_pair}_improved_fusion{'_ppi' if use_ppi else ''}"
+    output_dir = Path(f"/home/zijianzhou/project/PFP/experiments/PLMs/gatefuse/results_improved/{exp_name}/{aspect}")
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    print(f"\n{'='*70}")
+    print(f"Training IMPROVED Fusion Model")
+    print(f"Modality Pair: {modality_pair.upper()}")
+    print(f"Aspect: {aspect}")
+    print(f"PPI: {'ENABLED' if use_ppi else 'DISABLED'}")
+    print(f"Device: {device}")
+    print(f"Seed: {seed}")
+    print(f"Output: {output_dir}")
+    print(f"{'='*70}\n")
+    
     # Load datasets
-    print("\nLoading datasets...")
-    train_dataset = PairwiseModalityDataset(data_dir, embedding_dirs, modality_pair, aspect, 'train',
-                                           use_ppi=use_ppi)
-    val_dataset = PairwiseModalityDataset(data_dir, embedding_dirs, modality_pair, aspect, 'valid',
-                                         use_ppi=use_ppi)
-    test_dataset = PairwiseModalityDataset(data_dir, embedding_dirs, modality_pair, aspect, 'test',
-                                          use_ppi=use_ppi)
+    print("Loading datasets...")
+    train_dataset = PairwiseModalityDataset(data_dir, embedding_dirs, modality_pair, aspect, 'train', use_ppi=use_ppi)
+    val_dataset = PairwiseModalityDataset(data_dir, embedding_dirs, modality_pair, aspect, 'valid', use_ppi=use_ppi)
+    test_dataset = PairwiseModalityDataset(data_dir, embedding_dirs, modality_pair, aspect, 'test', use_ppi=use_ppi)
+    
+    # Compute class balance
+    train_labels = train_dataset.labels
+    pos_counts = train_labels.sum(dim=0).cpu().numpy()
+    neg_counts = len(train_labels) - pos_counts
     
     # Create dataloaders
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, 
+    train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True,
                              collate_fn=collate_fn, num_workers=8, pin_memory=True,
                              worker_init_fn=worker_init_fn)
-    val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False,
+    val_loader = DataLoader(val_dataset, batch_size=config['batch_size'], shuffle=False,
                            collate_fn=collate_fn, num_workers=8, pin_memory=True,
                            worker_init_fn=worker_init_fn)
-    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False,
+    test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=False,
                             collate_fn=collate_fn, num_workers=8, pin_memory=True,
                             worker_init_fn=worker_init_fn)
     
     # Create model
     num_go_terms = train_dataset.labels.shape[1]
-    model = PairwiseModalityAdaptiveFusion(
+    model = ImprovedPairwiseModalityFusion(
         modality_pair=modality_pair,
         dim_config=dim_config,
-        hidden_dim=512,
+        hidden_dim=config['hidden_dim'],
         num_go_terms=num_go_terms,
+        dropout=config['dropout'],
         use_ppi=use_ppi,
         ppi_dim=512,
-        use_diversity_loss=use_diversity_loss,
-        diversity_weight=diversity_weight,
-        use_gate_entropy=use_gate_entropy,
-        gate_entropy_weight=gate_entropy_weight
+        modality_dropout_rate=config['modality_dropout'],
+        ppi_dropout_rate=config['ppi_dropout']
     ).to(device)
     
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"\nModel parameters: {n_params:,}")
+    print(f"Model parameters: {n_params:,}")
     
     # Training setup
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = ClassBalancedBCELoss(pos_counts, neg_counts).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config['lr'], weight_decay=config['weight_decay'])
+    
+    # Learning rate scheduler
+    num_training_steps = len(train_loader) * config['max_epochs']
+    num_warmup_steps = int(num_training_steps * config['warmup_ratio'])
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer,
+        max_lr=config['lr'],
+        total_steps=num_training_steps,
+        pct_start=config['warmup_ratio'],
+        anneal_strategy='cos'
+    )
     
     # Training loop
     best_val_fmax = 0
     patience_counter = 0
-    patience = 5
     history = []
     
     print("\nStarting training...")
-    for epoch in range(1, 51):
-        train_loss = train_epoch(model, train_loader, optimizer, criterion, device,
-                                diversity_weight if use_diversity_loss else 0.0,
-                                gate_entropy_weight if use_gate_entropy else 0.0)
+    for epoch in range(1, config['max_epochs'] + 1):
+        # Train
+        train_metrics = train_epoch(model, train_loader, optimizer, criterion, scheduler, device, config)
+        
+        # Validate
         val_loss, val_fmax, val_threshold, val_prec, val_recall, val_micro_auprc, val_macro_auprc = evaluate(
             model, val_loader, criterion, device
         )
         
         # Log gate statistics periodically
-        gate_stats = None
+        gate_stats = {}
         if epoch % 5 == 0:
             gate_stats = log_gate_statistics(model, val_loader, device)
-
-        print(f"\nEpoch {epoch}/50")
-        print(f"  Train Loss: {train_loss:.4f}")
+        
+        print(f"\nEpoch {epoch}/{config['max_epochs']}")
+        print(f"  Train Loss: {train_metrics['total_loss']:.4f} "
+              f"(main: {train_metrics['main_loss']:.4f}, "
+              f"decorr: {train_metrics['decorr_loss']:.4f}, "
+              f"entropy: {train_metrics['entropy_loss']:.4f})")
         print(f"  Val Loss: {val_loss:.4f}, Fmax: {val_fmax:.4f} (t={val_threshold:.3f})")
-        print(f"  Precision: {val_prec:.4f}, Recall: {val_recall:.4f}")
-        print(f"  Micro-AUPRC: {val_micro_auprc:.4f}, Macro-AUPRC: {val_macro_auprc:.4f}")
+        print(f"  Val Precision: {val_prec:.4f}, Recall: {val_recall:.4f}")
+        print(f"  Val AUPRC: Micro={val_micro_auprc:.4f}, Macro={val_macro_auprc:.4f}")
+        print(f"  LR: {scheduler.get_last_lr()[0]:.6f}")
         
         history.append({
             'epoch': epoch,
-            'train_loss': train_loss,
+            **train_metrics,
             'val_loss': val_loss,
-            'fmax': val_fmax,
-            'threshold': val_threshold,
-            'precision': val_prec,
-            'recall': val_recall,
-            'micro_auprc': val_micro_auprc,
-            'macro_auprc': val_macro_auprc,
-            **(gate_stats or {})
+            'val_fmax': val_fmax,
+            'val_threshold': val_threshold,
+            'val_precision': val_prec,
+            'val_recall': val_recall,
+            'val_micro_auprc': val_micro_auprc,
+            'val_macro_auprc': val_macro_auprc,
+            'lr': scheduler.get_last_lr()[0],
+            **gate_stats
         })
         
+        # Save best model
         if val_fmax > best_val_fmax:
             best_val_fmax = val_fmax
             best_epoch = epoch
             patience_counter = 0
             torch.save(model.state_dict(), output_dir / "best_model.pt")
-            print(f"  ✓ New best: {best_val_fmax:.4f}")
+            print(f"  ✓ New best model saved (Fmax: {best_val_fmax:.4f})")
         else:
             patience_counter += 1
         
-        if patience_counter >= patience:
+        if patience_counter >= config['patience']:
             print(f"\nEarly stopping at epoch {epoch}")
             break
     
@@ -444,7 +483,7 @@ def train_model(modality_pair, aspect, use_ppi=False,
         
         test_protein_ids = test_dataset.protein_ids.tolist()
         
-        cafa_metrics = evaluate_with_cafa_pairwise(
+        cafa_metrics = evaluate_with_cafa_improved(
             model=model,
             loader=test_loader,
             device=device,
@@ -455,12 +494,18 @@ def train_model(modality_pair, aspect, use_ppi=False,
             dim_config=dim_config,
             use_ppi=use_ppi
         )
+        
+        if cafa_metrics:
+            print(f"\nCAFA Metrics:")
+            print(f"  Fmax: {cafa_metrics.get('cafa_fmax', 0):.3f}")
+            print(f"  Smin: {cafa_metrics.get('cafa_smin', 0):.3f}")
+            print(f"  Coverage: {cafa_metrics.get('cafa_coverage', 0):.3f}")
     else:
         print(f"\nWarning: OBO file not found at {obo_file}. Skipping CAFA evaluation.")
     
     # Save results
     results = {
-        'model_type': 'pairwise_adaptive_fusion_with_ppi',
+        'model_type': 'improved_pairwise_adaptive_fusion',
         'modality_pair': modality_pair,
         'experiment_name': exp_name,
         'aspect': aspect,
@@ -468,12 +513,7 @@ def train_model(modality_pair, aspect, use_ppi=False,
         'num_parameters': n_params,
         'seed': seed,
         'use_ppi': use_ppi,
-        'regularization': {
-            'diversity_loss': use_diversity_loss,
-            'diversity_weight': diversity_weight if use_diversity_loss else None,
-            'gate_entropy': use_gate_entropy,
-            'gate_entropy_weight': gate_entropy_weight if use_gate_entropy else None
-        },
+        'config': config,
         'test_metrics': {
             'fmax': float(test_fmax),
             'threshold': float(test_threshold),
@@ -481,7 +521,7 @@ def train_model(modality_pair, aspect, use_ppi=False,
             'recall': float(test_recall),
             'micro_auprc': float(test_micro_auprc),
             'macro_auprc': float(test_macro_auprc),
-            **(final_gate_stats or {}),
+            **final_gate_stats,
             **cafa_metrics
         },
         'best_val_fmax': float(best_val_fmax),
@@ -498,106 +538,18 @@ def train_model(modality_pair, aspect, use_ppi=False,
     pd.DataFrame(history).to_csv(output_dir / "history.csv", index=False)
     
     print(f"\n✓ Results saved to: {output_dir}")
-    print(f"✓ Experiment name: {exp_name}")
+    print(f"✓ Best validation Fmax: {best_val_fmax:.4f} at epoch {best_epoch}")
+    
+    return results
 
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--modality-pair', type=str, required=True, 
-                   choices=['text_prott5', 'text_esm', 'prott5_esm', 'prott5_prostt5'])
+    parser.add_argument('--modality-pair', type=str, required=True,
+                       choices=['text_prott5', 'text_esm', 'prott5_esm', 'prott5_prostt5'])
     parser.add_argument('--aspect', type=str, required=True, choices=['BPO', 'CCO', 'MFO'])
-    parser.add_argument('--use-ppi', action='store_true', help='Enable PPI complementary track')
-    parser.add_argument('--use-diversity-loss', action='store_true')
-    parser.add_argument('--diversity-weight', type=float, default=0.01)
-    parser.add_argument('--no-gate-entropy', action='store_true', help='Disable gate entropy loss')
-    parser.add_argument('--gate-entropy-weight', type=float, default=0.001)
+    parser.add_argument('--no-ppi', action='store_true', help='Disable PPI')
     args = parser.parse_args()
     
-    train_model(
-        args.modality_pair, 
-        args.aspect,
-        use_ppi=args.use_ppi,
-        use_diversity_loss=args.use_diversity_loss, 
-        diversity_weight=args.diversity_weight,
-        use_gate_entropy=not args.no_gate_entropy,
-        gate_entropy_weight=args.gate_entropy_weight
-    )
-
-
-#     #!/bin/bash
-
-# # Comprehensive PPI experiments for pairwise fusion models
-# # Tests all combinations of PPI and regularization strategies
-
-# echo "================================================"
-# echo "PPI Complementary Track Experiments"
-# echo "Testing PPI integration with all regularization strategies"
-# echo "================================================"
-
-# DIV_W=0.01
-# GATE_ENT_W=0.001
-
-# # Run experiments for each aspect and modality pair
-# for A in BPO CCO MFO; do
-#     for P in text_prott5 text_esm prott5_esm prott5_prostt5; do
-        
-#         echo ""
-#         echo "=========================================="
-#         echo "Modality pair: $P, Aspect: $A"
-#         echo "=========================================="
-        
-#         # Condition 1: PPI + baseline (entropy only)
-#         echo ""
-#         echo "[1/4] Running: PPI + Entropy loss only"
-#         python train_pairwise_fusion.py \
-#             --modality-pair "$P" \
-#             --aspect "$A" \
-#             --use-ppi
-        
-#         # Condition 2: PPI + diversity + entropy
-#         echo ""
-#         echo "[2/4] Running: PPI + Diversity + Entropy"
-#         python train_pairwise_fusion.py \
-#             --modality-pair "$P" \
-#             --aspect "$A" \
-#             --use-ppi \
-#             --use-diversity-loss \
-#             --diversity-weight "$DIV_W"
-        
-#         # Condition 3: PPI + diversity (no entropy)
-#         echo ""
-#         echo "[3/4] Running: PPI + Diversity (no entropy)"
-#         python train_pairwise_fusion.py \
-#             --modality-pair "$P" \
-#             --aspect "$A" \
-#             --use-ppi \
-#             --use-diversity-loss \
-#             --diversity-weight "$DIV_W" \
-#             --no-gate-entropy
-        
-#         # Condition 4: PPI + no regularization losses
-#         echo ""
-#         echo "[4/4] Running: PPI + No regularization"
-#         python train_pairwise_fusion.py \
-#             --modality-pair "$P" \
-#             --aspect "$A" \
-#             --use-ppi \
-#             --no-gate-entropy
-        
-#     done
-# done
-
-# echo ""
-# echo "================================================"
-# echo "All PPI experiments completed!"
-# echo "================================================"
-# echo ""
-# echo "Results are saved in:"
-# echo "/home/zijianzhou/project/PFP/experiments/PLMs/plm_results/pair/"
-# echo ""
-# echo "Experiment naming convention:"
-# echo "  - {pair}_fusion_ppi              = PPI + entropy only"
-# echo "  - {pair}_fusion_ppi_div_entropy  = PPI + diversity + entropy"
-# echo "  - {pair}_fusion_ppi_div_noentropy = PPI + diversity (no entropy)"
-# echo "  - {pair}_fusion_ppi_nolosses     = PPI + no regularization"
+    train_improved_model(args.modality_pair, args.aspect, use_ppi=not args.no_ppi)

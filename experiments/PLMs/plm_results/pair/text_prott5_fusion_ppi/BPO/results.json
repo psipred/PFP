@@ -1,0 +1,43 @@
+{
+  "model_type": "pairwise_adaptive_fusion_with_ppi",
+  "modality_pair": "text_prott5",
+  "experiment_name": "text_prott5_fusion_ppi",
+  "aspect": "BPO",
+  "num_go_terms": 3992,
+  "num_parameters": 8690845,
+  "seed": 42,
+  "use_ppi": true,
+  "regularization": {
+    "diversity_loss": false,
+    "diversity_weight": null,
+    "gate_entropy": true,
+    "gate_entropy_weight": 0.001
+  },
+  "test_metrics": {
+    "fmax": 0.4969837934676816,
+    "threshold": 0.3564646464646465,
+    "precision": 0.5368269199598007,
+    "recall": 0.4626463274942021,
+    "micro_auprc": 0.47035992547937816,
+    "macro_auprc": 0.08973215066022554,
+    "gate_text_mean": 0.5088528990745544,
+    "gate_text_std": 0.03964722156524658,
+    "gate_prott5_mean": 0.49114716053009033,
+    "gate_prott5_std": 0.03964722156524658,
+    "cafa_fmax": 0.572,
+    "cafa_threshold": 0.37,
+    "cafa_precision": 0.592,
+    "cafa_recall": 0.553,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.536,
+    "cafa_rc_micro": 0.463,
+    "cafa_f_micro": 0.497,
+    "cafa_smin": 19.358
+  },
+  "best_val_fmax": 0.48124783956290035,
+  "best_epoch": 1,
+  "total_epochs": 1,
+  "train_size": 47691,
+  "val_size": 5252,
+  "test_size": 2392
+}
