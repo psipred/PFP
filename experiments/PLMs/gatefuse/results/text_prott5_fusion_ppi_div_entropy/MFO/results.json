@@ -1,0 +1,43 @@
+{
+  "model_type": "pairwise_adaptive_fusion_with_ppi",
+  "modality_pair": "text_prott5",
+  "experiment_name": "text_prott5_fusion_ppi_div_entropy",
+  "aspect": "MFO",
+  "num_go_terms": 677,
+  "num_parameters": 5292970,
+  "seed": 42,
+  "use_ppi": true,
+  "regularization": {
+    "diversity_loss": true,
+    "diversity_weight": 0.01,
+    "gate_entropy": true,
+    "gate_entropy_weight": 0.001
+  },
+  "test_metrics": {
+    "fmax": 0.5944693178325381,
+    "threshold": 0.44555555555555554,
+    "precision": 0.6007665282657234,
+    "recall": 0.5883027522935719,
+    "micro_auprc": 0.620819846607229,
+    "macro_auprc": 0.4149897182702898,
+    "gate_text_mean": 0.5102656483650208,
+    "gate_text_std": 0.04868757724761963,
+    "gate_prott5_mean": 0.48973435163497925,
+    "gate_prott5_std": 0.04868757724761963,
+    "cafa_fmax": 0.652,
+    "cafa_threshold": 0.44,
+    "cafa_precision": 0.643,
+    "cafa_recall": 0.66,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.585,
+    "cafa_rc_micro": 0.611,
+    "cafa_f_micro": 0.598,
+    "cafa_smin": 4.68
+  },
+  "best_val_fmax": 0.6784072728620498,
+  "best_epoch": 18,
+  "total_epochs": 23,
+  "train_size": 32421,
+  "val_size": 3587,
+  "test_size": 1137
+}

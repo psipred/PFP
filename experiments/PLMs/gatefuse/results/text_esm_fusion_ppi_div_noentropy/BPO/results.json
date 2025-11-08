@@ -1,0 +1,43 @@
+{
+  "model_type": "pairwise_adaptive_fusion_with_ppi",
+  "modality_pair": "text_esm",
+  "experiment_name": "text_esm_fusion_ppi_div_noentropy",
+  "aspect": "BPO",
+  "num_go_terms": 3992,
+  "num_parameters": 8821917,
+  "seed": 42,
+  "use_ppi": true,
+  "regularization": {
+    "diversity_loss": true,
+    "diversity_weight": 0.01,
+    "gate_entropy": false,
+    "gate_entropy_weight": null
+  },
+  "test_metrics": {
+    "fmax": 0.5204068135912048,
+    "threshold": 0.4257575757575757,
+    "precision": 0.5186701264101454,
+    "recall": 0.5221551700053075,
+    "micro_auprc": 0.502026238557146,
+    "macro_auprc": 0.2121689197173223,
+    "gate_text_mean": 0.49671420454978943,
+    "gate_text_std": 0.08143536746501923,
+    "gate_esm_mean": 0.5032857656478882,
+    "gate_esm_std": 0.08143536746501923,
+    "cafa_fmax": 0.592,
+    "cafa_threshold": 0.57,
+    "cafa_precision": 0.603,
+    "cafa_recall": 0.581,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.559,
+    "cafa_rc_micro": 0.492,
+    "cafa_f_micro": 0.523,
+    "cafa_smin": 18.809
+  },
+  "best_val_fmax": 0.5527468495961628,
+  "best_epoch": 24,
+  "total_epochs": 29,
+  "train_size": 47691,
+  "val_size": 5252,
+  "test_size": 2392
+}

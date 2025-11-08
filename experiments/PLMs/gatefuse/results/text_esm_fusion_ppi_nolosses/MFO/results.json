@@ -1,0 +1,43 @@
+{
+  "model_type": "pairwise_adaptive_fusion_with_ppi",
+  "modality_pair": "text_esm",
+  "experiment_name": "text_esm_fusion_ppi_nolosses",
+  "aspect": "MFO",
+  "num_go_terms": 677,
+  "num_parameters": 5424042,
+  "seed": 42,
+  "use_ppi": true,
+  "regularization": {
+    "diversity_loss": false,
+    "diversity_weight": null,
+    "gate_entropy": false,
+    "gate_entropy_weight": null
+  },
+  "test_metrics": {
+    "fmax": 0.6013394052540771,
+    "threshold": 0.5049494949494949,
+    "precision": 0.6185385208861389,
+    "recall": 0.5850708924103358,
+    "micro_auprc": 0.6300788896995888,
+    "macro_auprc": 0.421149990575935,
+    "gate_text_mean": 0.4284297823905945,
+    "gate_text_std": 0.0756162628531456,
+    "gate_esm_mean": 0.5715702176094055,
+    "gate_esm_std": 0.0756162628531456,
+    "cafa_fmax": 0.665,
+    "cafa_threshold": 0.47,
+    "cafa_precision": 0.656,
+    "cafa_recall": 0.674,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.592,
+    "cafa_rc_micro": 0.618,
+    "cafa_f_micro": 0.605,
+    "cafa_smin": 4.496
+  },
+  "best_val_fmax": 0.6766878915371355,
+  "best_epoch": 27,
+  "total_epochs": 32,
+  "train_size": 32421,
+  "val_size": 3587,
+  "test_size": 1137
+}

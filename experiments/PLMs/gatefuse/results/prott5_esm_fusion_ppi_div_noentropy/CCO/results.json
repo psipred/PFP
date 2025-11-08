@@ -1,0 +1,43 @@
+{
+  "model_type": "pairwise_adaptive_fusion_with_ppi",
+  "modality_pair": "prott5_esm",
+  "experiment_name": "prott5_esm_fusion_ppi_div_noentropy",
+  "aspect": "CCO",
+  "num_go_terms": 551,
+  "num_parameters": 5425964,
+  "seed": 42,
+  "use_ppi": true,
+  "regularization": {
+    "diversity_loss": true,
+    "diversity_weight": 0.01,
+    "gate_entropy": false,
+    "gate_entropy_weight": null
+  },
+  "test_metrics": {
+    "fmax": 0.6356283290091357,
+    "threshold": 0.594040404040404,
+    "precision": 0.6729791826220102,
+    "recall": 0.6022054700641667,
+    "micro_auprc": 0.6767127426066324,
+    "macro_auprc": 0.2499310450989057,
+    "gate_prott5_mean": 0.9834473729133606,
+    "gate_prott5_std": 0.04725290462374687,
+    "gate_esm_mean": 0.016552560031414032,
+    "gate_esm_std": 0.04725290462374687,
+    "cafa_fmax": 0.7,
+    "cafa_threshold": 0.62,
+    "cafa_precision": 0.712,
+    "cafa_recall": 0.688,
+    "cafa_coverage": 1.0,
+    "cafa_pr_micro": 0.67,
+    "cafa_rc_micro": 0.608,
+    "cafa_f_micro": 0.637,
+    "cafa_smin": 6.184
+  },
+  "best_val_fmax": 0.7514101677144882,
+  "best_epoch": 16,
+  "total_epochs": 21,
+  "train_size": 45309,
+  "val_size": 4985,
+  "test_size": 1265
+}

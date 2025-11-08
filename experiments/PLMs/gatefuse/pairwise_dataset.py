@@ -1,4 +1,4 @@
-"""Dataset for pairwise modality fusion."""
+"""Dataset for pairwise modality fusion with optional PPI."""
 
 import torch
 import numpy as np
@@ -9,14 +9,17 @@ from tqdm import tqdm
 
 
 class PairwiseModalityDataset(Dataset):
-    """Dataset loading two modalities."""
+    """Dataset loading two modalities with optional PPI."""
     
-    def __init__(self, data_dir, embedding_dirs, modality_pair, aspect, split, cache_embeddings=True):
+    def __init__(self, data_dir, embedding_dirs, modality_pair, aspect, split, 
+                 use_ppi=False, cache_embeddings=True):
         self.data_dir = Path(data_dir)
         self.aspect = aspect
         self.split = split
         self.cache_embeddings = cache_embeddings
         self.modality_pair = modality_pair
+        self.use_ppi = use_ppi
+        self.ppi_dim = 512
         
         # Parse modality names
         mod1, mod2 = modality_pair.split('_')
@@ -24,6 +27,11 @@ class PairwiseModalityDataset(Dataset):
         self.mod2_name = mod2
         self.mod1_dir = Path(embedding_dirs[mod1])
         self.mod2_dir = Path(embedding_dirs[mod2])
+        
+        # PPI directory
+        if use_ppi:
+            self.ppi_dir = Path(embedding_dirs.get('ppi', 
+                Path(data_dir).parent / 'embedding_cache' / 'ppi'))
         
         # Load protein names and labels
         names_file = self.data_dir / f"{aspect}_{split}_names.npy"
@@ -34,6 +42,8 @@ class PairwiseModalityDataset(Dataset):
         self.labels = torch.FloatTensor(labels_sparse.toarray())
         
         print(f"Loaded {len(self.protein_ids)} proteins for {aspect} {split} ({modality_pair})")
+        if use_ppi:
+            print(f"PPI embeddings will be loaded from: {self.ppi_dir}")
         
         self.embedding_cache = {}
         if cache_embeddings:
@@ -61,7 +71,7 @@ class PairwiseModalityDataset(Dataset):
         else:
             embedding = data  # ndarray or object array
 
-        # If it’s a 0-d object that actually contains a dict/array, unwrap it
+        # If it's a 0-d object that actually contains a dict/array, unwrap it
         if isinstance(embedding, np.ndarray) and embedding.dtype == object:
             # Possible cases: array(dict), array(list), scalar object
             if embedding.shape == () or embedding.shape == (1,):
@@ -126,9 +136,10 @@ class PairwiseModalityDataset(Dataset):
         """Load all embeddings into memory with proper error reporting."""
         import torch
 
-        missing = {self.mod1_name: [], self.mod2_name: []}
-        failed  = {self.mod1_name: [], self.mod2_name: []}
+        missing = {self.mod1_name: [], self.mod2_name: [], 'ppi': []}
+        failed  = {self.mod1_name: [], self.mod2_name: [], 'ppi': []}
         loaded_count = 0
+        ppi_found = 0
 
         for idx, protein_id in enumerate(tqdm(self.protein_ids, desc="Loading embeddings")):
             mod1_file = self.mod1_dir / f"{protein_id}.npy"
@@ -145,9 +156,38 @@ class PairwiseModalityDataset(Dataset):
                 mod1_emb = torch.from_numpy(self._load_embedding(mod1_file)).float()
                 mod2_emb = torch.from_numpy(self._load_embedding(mod2_file)).float()
 
+                # Load PPI if enabled
+                if self.use_ppi:
+                    ppi_file = self.ppi_dir / f"{protein_id}.npy"
+                    if ppi_file.exists():
+                        try:
+                            ppi_emb = torch.from_numpy(np.load(ppi_file)).float()
+                            # Ensure correct dimension
+                            if ppi_emb.shape[0] != self.ppi_dim:
+                                print(f"Warning: PPI embedding for {protein_id} has dimension {ppi_emb.shape[0]}, expected {self.ppi_dim}")
+                                ppi_emb = torch.zeros(self.ppi_dim)
+                                ppi_flag = torch.tensor([0.0])
+                            else:
+                                ppi_flag = torch.tensor([1.0])
+                                ppi_found += 1
+                        except Exception as e:
+                            ppi_emb = torch.zeros(self.ppi_dim)
+                            ppi_flag = torch.tensor([0.0])
+                            failed['ppi'].append(protein_id)
+                    else:
+                        ppi_emb = torch.zeros(self.ppi_dim)
+                        ppi_flag = torch.tensor([0.0])
+                        missing['ppi'].append(protein_id)
+                else:
+                    # Default zero embeddings when PPI is not used
+                    ppi_emb = torch.zeros(self.ppi_dim)
+                    ppi_flag = torch.tensor([0.0])
+
                 self.embedding_cache[idx] = {
                     self.mod1_name: mod1_emb,
-                    self.mod2_name: mod2_emb
+                    self.mod2_name: mod2_emb,
+                    'ppi': ppi_emb,
+                    'ppi_flag': ppi_flag
                 }
                 loaded_count += 1
 
@@ -179,11 +219,21 @@ class PairwiseModalityDataset(Dataset):
 
         # Summary
         for modality, ids in missing.items():
-            if ids:
+            if ids and modality != 'ppi':
                 print(f"WARNING: {len(ids)} {modality} embeddings MISSING (files not found)")
         for modality, ids in failed.items():
-            if ids:
+            if ids and modality != 'ppi':
                 print(f"WARNING: {len(ids)} {modality} embeddings FAILED to load (parse/shape/dtype)")
+
+        if self.use_ppi:
+            ppi_missing = len(missing['ppi'])
+            ppi_failed = len(failed['ppi'])
+            total_ppi_unavailable = ppi_missing + ppi_failed
+            if total_ppi_unavailable > 0:
+                print(f"PPI: {ppi_found} found, {ppi_missing} missing, {ppi_failed} failed "
+                      f"({ppi_found/len(self.protein_ids)*100:.1f}% coverage)")
+            else:
+                print(f"PPI: {ppi_found}/{len(self.protein_ids)} available ({ppi_found/len(self.protein_ids)*100:.1f}% coverage)")
 
         print(f"Successfully cached {loaded_count}/{len(self.protein_ids)} proteins")
 
@@ -200,21 +250,27 @@ class PairwiseModalityDataset(Dataset):
         return {
             'mod1': embeddings[self.mod1_name],
             'mod2': embeddings[self.mod2_name],
+            'ppi': embeddings['ppi'],
+            'ppi_flag': embeddings['ppi_flag'],
             'labels': self.labels[idx],
             'protein_id': self.protein_ids[idx]
         }
 
 
 def collate_fn(batch):
-    """Collate function for pairwise modality dataset."""
+    """Collate function for pairwise modality dataset with PPI."""
     mod1 = torch.stack([b['mod1'] for b in batch])
     mod2 = torch.stack([b['mod2'] for b in batch])
+    ppi = torch.stack([b['ppi'] for b in batch])
+    ppi_flag = torch.stack([b['ppi_flag'] for b in batch])
     labels = torch.stack([b['labels'] for b in batch])
     protein_ids = [b['protein_id'] for b in batch]
     
     return {
         'mod1': mod1,
         'mod2': mod2,
+        'ppi': ppi,
+        'ppi_flag': ppi_flag,
         'labels': labels,
         'protein_ids': protein_ids
     }
