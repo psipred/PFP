@@ -157,12 +157,6 @@ def train_epoch(model, loader, optimizer, criterion, scheduler, device, aux_loss
     return result
 
 
-
-
-
-
-
-
 def evaluate(model, loader, criterion, device, compute_weight_stats_detailed=False):
     """Evaluate model."""
     model.eval()
@@ -238,26 +232,146 @@ def evaluate(model, loader, criterion, device, compute_weight_stats_detailed=Fal
     return result
 
 
+# def evaluate_with_cafa(model, loader, device, protein_ids, go_terms, obo_file,
+#                        output_dir, seq_model, fusion_type, train_labels=None):
+#     """CAFA evaluation for test set with optional IA-weighted metrics."""
+#     try:
+#         from cafa_evaluation import evaluate_with_cafa as cafa_eval
+
+#         seq_dim = 1024 if seq_model == 'prott5' else 1280
+
+#         class MultimodalWrapper:
+#             def __init__(self, loader):
+#                 self.loader = loader
+
+#             def __iter__(self):
+#                 for batch in self.loader:
+#                     embeddings = torch.cat([
+#                         batch['seq'], batch['seq_mask'],
+#                         batch['text'], batch['text_mask'],
+#                         batch['struct'], batch['struct_mask'],
+#                         batch['ppi'], batch['ppi_mask']
+#                     ], dim=-1)
+#                     yield {'embeddings': embeddings, 'labels': batch['labels']}
+
+#             def __len__(self):
+#                 return len(self.loader)
+
+#         class ModelWrapper(nn.Module):
+#             def __init__(self, multimodal_model, seq_dim):
+#                 super().__init__()
+#                 self.model = multimodal_model
+#                 self.seq_dim = seq_dim
+
+#             def forward(self, embeddings):
+#                 seq = embeddings[:, :self.seq_dim]
+#                 seq_mask = embeddings[:, self.seq_dim:self.seq_dim+1]
+
+#                 offset = self.seq_dim + 1
+#                 text = embeddings[:, offset:offset+768]
+#                 text_mask = embeddings[:, offset+768:offset+769]
+
+#                 offset = offset + 769
+#                 struct = embeddings[:, offset:offset+512]
+#                 struct_mask = embeddings[:, offset+512:offset+513]
+
+#                 offset = offset + 513
+#                 ppi = embeddings[:, offset:offset+512]
+#                 ppi_mask = embeddings[:, offset+512:offset+513]
+
+#                 logits, _, _ = self.model(
+#                     seq, seq_mask, text, text_mask,
+#                     struct, struct_mask, ppi, ppi_mask
+#                 )
+#                 return logits
+
+#         wrapped_model = ModelWrapper(model, seq_dim).to(device)
+#         wrapped_loader = MultimodalWrapper(loader)
+
+#         return cafa_eval(
+#             model=wrapped_model,
+#             loader=wrapped_loader,
+#             device=device,
+#             protein_ids=protein_ids,
+#             go_terms=go_terms,
+#             obo_file=obo_file,
+#             output_dir=output_dir,
+#             model_type=f'{fusion_type}_fusion',
+#             model_name=f"{seq_model}_{fusion_type}",
+#             train_labels=train_labels
+#         )
+#     except Exception as e:
+#         print(f"\nWarning: CAFA evaluation failed: {e}")
+#         import traceback
+#         traceback.print_exc()
+#         return {}
+
+
+
 def evaluate_with_cafa(model, loader, device, protein_ids, go_terms, obo_file,
-                       output_dir, seq_model, fusion_type, train_labels=None):
-    """CAFA evaluation for test set with optional IA-weighted metrics."""
+                       output_dir, seq_model, fusion_type, train_labels=None,
+                       keep_modalities=None, tag=None):
+    """
+    CAFA evaluation with optional modality masking (no retraining).
+    keep_modalities: iterable subset of {"seq","text","struct","ppi"} to KEEP.
+                     If None => keep all (full multimodal).
+    tag: optional string appended to model_type/model_name/output_dir subfolder.
+    """
     try:
         from cafa_evaluation import evaluate_with_cafa as cafa_eval
 
         seq_dim = 1024 if seq_model == 'prott5' else 1280
+        all_mods = ("seq", "text", "struct", "ppi")
+        keep = set(all_mods) if keep_modalities is None else set(keep_modalities)
+
+        # nice name for files
+        if tag is None:
+            if keep_modalities is None:
+                tag = "full"
+            else:
+                tag = "keep_" + "_".join([m for m in all_mods if m in keep])
+
+        run_dir = Path(output_dir) / tag
+        run_dir.mkdir(parents=True, exist_ok=True)
 
         class MultimodalWrapper:
-            def __init__(self, loader):
+            def __init__(self, loader, keep):
                 self.loader = loader
+                self.keep = keep
 
             def __iter__(self):
                 for batch in self.loader:
+                    # clone references (tensors) and mask at eval-time
+                    seq = batch['seq']
+                    seq_mask = batch['seq_mask']
+                    text = batch['text']
+                    text_mask = batch['text_mask']
+                    struct = batch['struct']
+                    struct_mask = batch['struct_mask']
+                    ppi = batch['ppi']
+                    ppi_mask = batch['ppi_mask']
+
+                    # Masking rule: if modality not kept => zero embedding + zero mask
+                    if "seq" not in self.keep:
+                        seq = torch.zeros_like(seq)
+                        seq_mask = torch.zeros_like(seq_mask)
+                    if "text" not in self.keep:
+                        text = torch.zeros_like(text)
+                        text_mask = torch.zeros_like(text_mask)
+                    if "struct" not in self.keep:
+                        struct = torch.zeros_like(struct)
+                        struct_mask = torch.zeros_like(struct_mask)
+                    if "ppi" not in self.keep:
+                        ppi = torch.zeros_like(ppi)
+                        ppi_mask = torch.zeros_like(ppi_mask)
+
                     embeddings = torch.cat([
-                        batch['seq'], batch['seq_mask'],
-                        batch['text'], batch['text_mask'],
-                        batch['struct'], batch['struct_mask'],
-                        batch['ppi'], batch['ppi_mask']
+                        seq, seq_mask,
+                        text, text_mask,
+                        struct, struct_mask,
+                        ppi, ppi_mask
                     ], dim=-1)
+
                     yield {'embeddings': embeddings, 'labels': batch['labels']}
 
             def __len__(self):
@@ -292,7 +406,7 @@ def evaluate_with_cafa(model, loader, device, protein_ids, go_terms, obo_file,
                 return logits
 
         wrapped_model = ModelWrapper(model, seq_dim).to(device)
-        wrapped_loader = MultimodalWrapper(loader)
+        wrapped_loader = MultimodalWrapper(loader, keep)
 
         return cafa_eval(
             model=wrapped_model,
@@ -301,11 +415,12 @@ def evaluate_with_cafa(model, loader, device, protein_ids, go_terms, obo_file,
             protein_ids=protein_ids,
             go_terms=go_terms,
             obo_file=obo_file,
-            output_dir=output_dir,
-            model_type=f'{fusion_type}_fusion',
-            model_name=f"{seq_model}_{fusion_type}",
+            output_dir=run_dir,
+            model_type=f'{fusion_type}_fusion_{tag}',
+            model_name=f"{seq_model}_{fusion_type}_{tag}",
             train_labels=train_labels
         )
+
     except Exception as e:
         print(f"\nWarning: CAFA evaluation failed: {e}")
         import traceback
@@ -313,8 +428,51 @@ def evaluate_with_cafa(model, loader, device, protein_ids, go_terms, obo_file,
         return {}
 
 
+
+
+def run_missing_modality_cafa_suite(model, test_loader, device,
+                                   test_protein_ids, go_terms, obo_file,
+                                   output_dir, seq_model, fusion_type, train_labels):
+    """
+    Runs CAFA evaluation under multiple eval-time masking settings.
+    Returns: dict[setting_name] -> cafa_metrics_dict
+    """
+    protocols = {
+        # singles
+        "seq_only": ("seq",),
+        "text_only": ("text",),
+        "struct_only": ("struct",),
+        "ppi_only": ("ppi",),
+
+        # pairs required by you
+        "seq_text": ("seq", "text"),
+        "seq_struct": ("seq", "struct"),
+        "seq_ppi": ("seq", "ppi"),
+    }
+
+    out = {}
+    for name, keep in protocols.items():
+        print(f"\n--- CAFA missing-modality eval: {name} (keep={keep}) ---")
+        metrics = evaluate_with_cafa(
+            model=model,
+            loader=test_loader,
+            device=device,
+            protein_ids=test_protein_ids,
+            go_terms=go_terms,
+            obo_file=obo_file,
+            output_dir=Path(output_dir) / "cafa_eval_missing",
+            seq_model=seq_model,
+            fusion_type=fusion_type,
+            train_labels=train_labels,
+            keep_modalities=keep,
+            tag=name
+        )
+        out[name] = metrics or {}
+    return out
+
 def train_fusion_model(seq_model, aspect, fusion_type, modality_dropout=0.1, output_base='.',
-                       use_late_fusion=False, aux_loss_weight=0.1):
+                       use_late_fusion=False, aux_loss_weight=0.1,
+                       eval_missing=False):
     """Train a model with specified fusion type.
 
     Args:
@@ -348,7 +506,7 @@ def train_fusion_model(seq_model, aspect, fusion_type, modality_dropout=0.1, out
         'lr': 1e-3,
         'weight_decay': 0.01,
         'batch_size': 32,
-        'max_epochs': 50,
+        'max_epochs': 1,
         'patience': 5,
         'warmup_ratio': 0.1,
         'min_delta_fmax': 1e-4,
@@ -559,6 +717,20 @@ def train_fusion_model(seq_model, aspect, fusion_type, modality_dropout=0.1, out
             fusion_type=fusion_type,
             train_labels=train_dataset.labels
         )
+    missing_cafa = {}
+    if eval_missing and obo_file.exists():
+        missing_cafa = run_missing_modality_cafa_suite(
+            model=model,
+            test_loader=test_loader,
+            device=device,
+            test_protein_ids=test_protein_ids,
+            go_terms=go_terms,
+            obo_file=obo_file,
+            output_dir=output_dir,
+            seq_model=seq_model,
+            fusion_type=fusion_type,
+            train_labels=train_dataset.labels
+        )
     
     # Save results
     results = {
@@ -597,6 +769,20 @@ def train_fusion_model(seq_model, aspect, fusion_type, modality_dropout=0.1, out
             if isinstance(value, (int, float)):
                 results[f'cafa_{key}'] = float(value)
     
+
+
+    # Missing-modality CAFA suite
+    if missing_cafa:
+        results['cafa_missing'] = {}
+        for setting, m in missing_cafa.items():
+            results['cafa_missing'][setting] = {}
+            for k, v in (m or {}).items():
+                if isinstance(v, (int, float)):
+                    # store all numeric outputs; later you can read fmax/smin/wfmax/wsmin specifically
+                    results['cafa_missing'][setting][k] = float(v)
+
+
+    
     with open(output_dir / "results.json", 'w') as f:
         json.dump(results, f, indent=2)
     
@@ -609,7 +795,8 @@ def train_fusion_model(seq_model, aspect, fusion_type, modality_dropout=0.1, out
 
 def run_all_experiments(seq_model='prott5', aspects=None, fusion_types=None,
                         modality_dropout=0.1, output_base='.',
-                        use_late_fusion=False, aux_loss_weight=0.1):
+                        use_late_fusion=False, aux_loss_weight=0.1,
+                        eval_missing=False):
     """Run all fusion comparison experiments."""
     if aspects is None:
         aspects = ['MFO', 'CCO','BPO']
@@ -633,6 +820,7 @@ def run_all_experiments(seq_model='prott5', aspects=None, fusion_types=None,
                     output_base=output_base,
                     use_late_fusion=use_late_fusion,
                     aux_loss_weight=aux_loss_weight,
+                    eval_missing=eval_missing,
                 )
                 all_results.append(results)
             except Exception as e:
@@ -780,6 +968,8 @@ if __name__ == "__main__":
                         help='Enable auxiliary heads + hybrid gated late fusion')
     parser.add_argument('--aux-loss-weight', type=float, default=0.1,
                         help='Weight η for auxiliary supervision loss')
+    parser.add_argument('--eval-missing', action='store_true',
+                    help='Run extra CAFA eval with eval-time modality masking (no retraining)')
 
     args = parser.parse_args()
 
@@ -792,6 +982,7 @@ if __name__ == "__main__":
             output_base=args.output_base,
             use_late_fusion=args.use_late_fusion,
             aux_loss_weight=args.aux_loss_weight,
+            eval_missing=args.eval_missing,
         )
     else:
         run_all_experiments(
@@ -802,4 +993,6 @@ if __name__ == "__main__":
             output_base=args.output_base,
             use_late_fusion=args.use_late_fusion,
             aux_loss_weight=args.aux_loss_weight,
+            eval_missing=args.eval_missing,
+
         )
