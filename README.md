@@ -13,37 +13,7 @@ MMFP predicts Gene Ontology (GO) term annotations for proteins by combining info
 
 ## Architecture
 
-```
-                    ┌─────────────────┐
-                    │   Input Protein │
-                    └────────┬────────┘
-                             │
-         ┌───────────┬───────┴───────┬───────────┐
-         ▼           ▼               ▼           ▼
-    ┌─────────┐ ┌─────────┐   ┌─────────┐ ┌─────────┐
-    │   Seq   │ │  Text   │   │ Struct  │ │   PPI   │
-    │ ProtT5  │ │PubMedBERT│  │  ESM-IF │ │  Graph  │
-    │  1024d  │ │   768d  │   │  512d   │ │  512d   │
-    └────┬────┘ └────┬────┘   └────┬────┘ └────┬────┘
-         │           │             │           │
-         ▼           ▼             ▼           ▼
-    ┌─────────────────────────────────────────────┐
-    │          Modality Encoders                  │
-    │     (Project to common hidden space)        │
-    └─────────────────────┬───────────────────────┘
-                          │
-                          ▼
-    ┌─────────────────────────────────────────────┐
-    │            Fusion Module                     │
-    │       (Concat / Bilinear Gated)              │
-    └─────────────────────┬───────────────────────┘
-                          │
-                          ▼
-    ┌─────────────────────────────────────────────┐
-    │           Classifier Head                   │
-    │         (GO Term Predictions)               │
-    └─────────────────────────────────────────────┘
-```
+
 
 ## Fusion Methods
 
@@ -82,7 +52,7 @@ You have **two options** for preparing data:
 Download our precomputed CAFA3 embeddings to directly reproduce results:
 
 ```bash
-# Download precomputed data (~2GB compressed)
+# Download precomputed data (wait to be upload...)
 wget https://zenodo.org/record/XXXXXXX/files/mmfp_cafa3_data.tar.gz
 
 # Extract to data directory
