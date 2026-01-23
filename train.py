@@ -1,289 +1,675 @@
-import hydra, torch, numpy as np, random, os, logging
-from omegaconf import DictConfig, OmegaConf
-from torch.utils.data import DataLoader
-from Network.base_go_classifier import BaseGOClassifier
-from metrics import MetricBundle
-from Network.model import InterlabelGODataset   # your existing dataset
-from Network.model_utils import EarlyStop      # keep early-stop helper
+"""Training script for multimodal protein function prediction.
+
+Compares fusion techniques: concat, gated_bilinear
+Uses CAFA evaluation for test set benchmarking.
+
+Usage:
+    python train.py --fusion-types gated_bilinear
+    python train.py --aspects BPO CCO MFO --fusion-types concat gated_bilinear
+"""
+
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+import json
+import random
+import argparse
+from typing import List, Dict, Optional
 from pathlib import Path
+
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
 from tqdm import tqdm
-from Network.base_go_classifier import BaseGOClassifier
+import numpy as np
+import pandas as pd
 
-# Optional: write metrics.csv and training_curve.png
-try:
-    import pandas as pd
-    import matplotlib.pyplot as plt
-except ImportError:      # allow training to run without these libs
-    pd = None
-    plt = None
-
-def setup_logger(log_dir: str):
-    logger = logging.getLogger("trainer")
-    logger.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-
-    # File handler logs everything
-    fh = logging.FileHandler(os.path.join(log_dir, "train.log"))
-    fh.setLevel(logging.DEBUG)
-    fh.setFormatter(formatter)  
-    logger.addHandler(fh)
-
-    # Console handler logs only INFO and above
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-
-    return logger
-
-@hydra.main(version_base=None, config_path="configs", config_name="bpo")
-def main(cfg: DictConfig):
-    # reproducibility ----------
-    random.seed(cfg.seed); np.random.seed(cfg.seed)
-    torch.manual_seed(cfg.seed); torch.cuda.manual_seed_all(cfg.seed)
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    # setup logger
-    logger = setup_logger(cfg.log.out_dir)
-
-    # data ----------------------
-    train_ds = InterlabelGODataset(
-        features_dir=cfg.data_dir,
-        embedding_type=cfg.dataset.embedding_type,
-        names_npy=cfg.dataset.train_names,
-        labels_npy=cfg.dataset.train_labels,
-        # repr_layers=cfg.dataset.repr_layers,
-        # combine_feature=True,
-    )
-    valid_ds = InterlabelGODataset(
-        features_dir=cfg.data_dir,
-        embedding_type=cfg.dataset.embedding_type,
-        names_npy=cfg.dataset.valid_names,
-        labels_npy=cfg.dataset.valid_labels,
-        # repr_layers=cfg.dataset.repr_layers,
-        # combine_feature=True,
-    )
-    train_loader = DataLoader(
-        train_ds,
-        batch_size   = cfg.dataset.batch_size,
-        shuffle      = True,
-        num_workers  = cfg.dataset.num_workers,
-        drop_last    = True,          # avoid 1‑sample batch → BatchNorm error
-
-    )
-    valid_loader = DataLoader(
-        valid_ds, batch_size=cfg.dataset.batch_size,
-        shuffle=False, num_workers=cfg.dataset.num_workers
-    )
-
-    # infer embedding dimension once
-    sample = next(iter(train_loader))[1]           # (names, feats, labels)
-    input_dim = sample.shape[1]
-    cfg.model.input_dim = input_dim
+from mmfp.models import (
+    MultiModalFusionModel,
+    FUSION_REGISTRY,
+    count_fusion_parameters,
+    create_model
+)
+from mmfp.dataset import MultiModalDataset, collate_fn
+from mmfp.evaluation import evaluate_with_cafa, compute_fmax
 
 
-    # model / optim -------------
-    if cfg.dataset.embedding_type == "mmsite":
-        from Network.dnn import AP_align_fuse
-        # instantiate the mmstie fusion model
-        tau = getattr(cfg.model, "tau", 0.8)
-        model = AP_align_fuse(tau, hidden_size=256).to(device)
-        # load pretrained fusion checkpoint and drop its old classifier head
-        ckpt = cfg.model.get(
-            "mmstie_pretrained",
-            "/SAN/bioinf/PFP/pretrained/best_model_fuse_0.8322829131652661.pt"
+def set_seed(seed: int = 42) -> None:
+    """Set random seed for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+def worker_init_fn(worker_id: int) -> None:
+    """Initialize worker with unique seed."""
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
+
+def train_epoch(
+    model: nn.Module,
+    loader: DataLoader,
+    optimizer: torch.optim.Optimizer,
+    criterion: nn.Module,
+    scheduler,
+    device: str,
+    aux_loss_weight: float = 0.0
+) -> Dict:
+    """Training epoch.
+
+    Args:
+        model: Model to train
+        loader: Training data loader
+        optimizer: Optimizer
+        criterion: Loss function
+        scheduler: Learning rate scheduler
+        device: Device to use
+        aux_loss_weight: Weight for auxiliary loss (late fusion only)
+
+    Returns:
+        Dict with training metrics
+    """
+    model.train()
+    total_loss = 0
+    total_aux_loss = 0
+    weight_stats = []
+
+    for batch in tqdm(loader, desc="Training", leave=False):
+        seq = batch['seq'].to(device)
+        seq_mask = batch['seq_mask'].to(device)
+        text = batch['text'].to(device)
+        text_mask = batch['text_mask'].to(device)
+        struct = batch['struct'].to(device)
+        struct_mask = batch['struct_mask'].to(device)
+        ppi = batch['ppi'].to(device)
+        ppi_mask = batch['ppi_mask'].to(device)
+        labels = batch['labels'].to(device)
+
+        logits, fusion_weights, aux_outputs = model(
+            seq, seq_mask, text, text_mask,
+            struct, struct_mask, ppi, ppi_mask
         )
-        old_weights = torch.load(ckpt, map_location=device)
-        old_weights.pop("classifier_token.weight", None)
-        old_weights.pop("classifier_token.bias",   None)
-        missing_keys, unexpected_keys = model.load_state_dict(old_weights, strict=False)
-        logger.info(f"MMSTIE pretrained loaded; missing keys: {missing_keys}")
 
-        # ------------------------------------------------------------------
-        # Replace the pretrained classifier with a fresh one that matches the
-        # current ontology's output_dim (e.g. 453 for CCO, 673 for MFO).
-        # ------------------------------------------------------------------
+        loss = criterion(logits, labels)
 
-        hidden_size   = 2048
-        # model.fc2_res.out_features  # 256
-        
-        new_out_dim   = int(cfg.model.output_dim)
-        model.classifier = BaseGOClassifier(
-            input_dim=hidden_size,
-            output_dim=new_out_dim,
-            projection_dim=hidden_size,
-            hidden_dim=512
-        ).to(device)
+        # Auxiliary loss (if late fusion enabled)
+        if aux_outputs is not None and aux_loss_weight > 0:
+            aux_loss = 0
+            for _, aux_logits in aux_outputs['aux_logits'].items():
+                aux_loss = aux_loss + criterion(aux_logits, labels)
+            aux_loss = aux_loss_weight * aux_loss
+            loss = loss + aux_loss
+            total_aux_loss += aux_loss.item()
 
-        # Make sure only the classifier (and any selectively unfrozen modules)
-        # require gradients
-        for p in model.parameters():
-            p.requires_grad = False
-        for p in model.classifier.parameters():
-            p.requires_grad = True
-        for p in model.fc2_res.parameters():
-            p.requires_grad = True
-        for p in model.bn2_res.parameters():
-            p.requires_grad = True
-        for p in model.fusion_cross.parameters():
-            p.requires_grad = True
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+        scheduler.step()
+
+        total_loss += loss.item()
+        weight_stats.append(fusion_weights.mean(0).detach().cpu().numpy())
+
+    avg_weights = np.array(weight_stats).mean(0)
+
+    result = {
+        'loss': total_loss / max(1, len(loader)),
+        'weight_seq': float(avg_weights[0]),
+        'weight_text': float(avg_weights[1]),
+        'weight_struct': float(avg_weights[2]),
+        'weight_ppi': float(avg_weights[3]),
+    }
+    if total_aux_loss > 0:
+        result['aux_loss'] = total_aux_loss / max(1, len(loader))
+
+    return result
 
 
-    else:
-        model = BaseGOClassifier(**cfg.model).to(device)
+def evaluate(
+    model: nn.Module,
+    loader: DataLoader,
+    criterion: nn.Module,
+    device: str,
+    compute_weight_stats_detailed: bool = False
+) -> Dict:
+    """Evaluate model.
 
-    # -------------- detailed run information -----------------
-    total_params = sum(p.numel() for p in model.parameters())
-    logger.info(f"Embedding type : {cfg.dataset.embedding_type}")
-    logger.info(f"Input dim      : {cfg.model.input_dim}")
-    logger.info(f"Output dim     : {cfg.model.output_dim}")
-    logger.info(f"Total params   : {total_params:,}")
-    logger.info(f"Train samples  : {len(train_ds)} | "
-                f"Val samples: {len(valid_ds)} | "
-                f"Batch size: {cfg.dataset.batch_size}")
-    # verbose architecture to file only
-    logger.debug('Model architecture:\n' + repr(model))
-    
-    # Only include parameters that require gradients (i.e., the classifier head for mmsite)
-    trainable_params = [p for p in model.parameters() if p.requires_grad]
-    opt = torch.optim.AdamW(
-        trainable_params,
-        lr=cfg.optim.lr,
-        weight_decay=cfg.optim.weight_decay
-    )
-    criterion = torch.nn.BCEWithLogitsLoss()
-    metrics   = MetricBundle(device)
-    metrics_cpu = MetricBundle("cpu")        # inexpensive; avoids GPU blow‑up
+    Args:
+        model: Model to evaluate
+        loader: Evaluation data loader
+        criterion: Loss function
+        device: Device to use
+        compute_weight_stats_detailed: If True, compute detailed weight statistics
 
-    early_stop = EarlyStop(
-        patience   = cfg.optim.patience,
-        min_epochs = cfg.optim.get("min_epochs", 5),
-        monitor    = cfg.optim.get("monitor", "loss")
-    )
-    # collect metrics for CSV/plot
-    metrics_history = []
-                
-    # train loop ----------------
-    for epoch in range(1, cfg.optim.epochs + 1):
-        model.train(); train_loss = 0.
-        if cfg.dataset.embedding_type == "mmsite":
-            for _, seq_emb, text_emb, labels in tqdm(train_loader,
-                                                     desc=f"Epoch {epoch:02d} [train]",
-                                                     leave=False):
-                seq_emb  = seq_emb.to(device)
-                text_emb = text_emb.to(device)
-                labels   = labels.to(device).float()
-                opt.zero_grad()
-                outputs = model(text_emb, seq_emb)
-                logits  = outputs["token_logits"]
-                loss    = criterion(logits, labels)
-                # include contrastive loss if present
-                # if "contrastive_loss" in outputs:
-                #     loss = loss + cfg.model.get("contrastive_lambda", 5e-3) * outputs["contrastive_loss"]
-                loss.backward()
-                opt.step()
-                train_loss += loss.item() * labels.size(0)
-        else:
-            for _, feats, labels in tqdm(train_loader,
-                                         desc=f"Epoch {epoch:02d} [train]",
-                                         leave=False):
-                feats, labels = feats.to(device), labels.to(device).float()
-                opt.zero_grad()
-                logits = model(feats)
-                loss = criterion(logits, labels)
-                loss.backward(); opt.step()
-                train_loss += loss.item() * feats.size(0)
+    Returns:
+        Dict with evaluation metrics
+    """
+    model.eval()
+    total_loss = 0
+    all_preds = []
+    all_labels = []
+    weight_stats = []
+    lambda_values = []
 
-        train_loss /= len(train_loader.dataset)
+    with torch.no_grad():
+        for batch in tqdm(loader, desc="Evaluating", leave=False):
+            seq = batch['seq'].to(device)
+            seq_mask = batch['seq_mask'].to(device)
+            text = batch['text'].to(device)
+            text_mask = batch['text_mask'].to(device)
+            struct = batch['struct'].to(device)
+            struct_mask = batch['struct_mask'].to(device)
+            ppi = batch['ppi'].to(device)
+            ppi_mask = batch['ppi_mask'].to(device)
+            labels = batch['labels'].to(device)
 
-        # ---- validation ----
-        if epoch % cfg.log.metrics_every == 0:
-            model.eval(); val_loss = 0.
-            all_logits, all_labels = [], []
-            with torch.no_grad():
-                if cfg.dataset.embedding_type == "mmsite":
-                    for _, seq_emb, text_emb, labels in tqdm(valid_loader,
-                                                             desc=f"Epoch {epoch:02d} [val] ",
-                                                             leave=False):
-                        seq_emb  = seq_emb.to(device)
-                        text_emb = text_emb.to(device)
-                        labels   = labels.to(device).float()
-                        outputs  = model(text_emb, seq_emb)
-                        logits   = outputs["token_logits"]
-                        val_loss += criterion(logits, labels).item() * labels.size(0)
-                        all_logits.append(logits.detach().cpu())
-                        all_labels.append(labels.detach().cpu())
-                else:
-                    for _, feats, labels in tqdm(valid_loader,
-                                                 desc=f"Epoch {epoch:02d} [val] ",
-                                                 leave=False):
-                        feats, labels = feats.to(device), labels.to(device).float()
-                        logits = model(feats)
-                        val_loss += criterion(logits, labels).item() * feats.size(0)
-                        all_logits.append(logits.detach().cpu())
-                        all_labels.append(labels.detach().cpu())
-            val_loss /= len(valid_loader.dataset)
-            metrics_report = metrics_cpu(
-                torch.cat(all_logits, dim=0),
-                torch.cat(all_labels, dim=0)
+            logits, fusion_weights, aux_outputs = model(
+                seq, seq_mask, text, text_mask,
+                struct, struct_mask, ppi, ppi_mask
             )
 
-            logger.debug(f"Epoch {epoch:02d} | "
-                  f"train {train_loss:.4f} | "
-                  f"val {val_loss:.4f} | "
-                  f"mAP {metrics_report['AP']:.4f} | "
-                  f"Fmax {metrics_report['Fmax']:.4f}")
+            loss = criterion(logits, labels)
 
-            # save for later CSV/plot
-            metrics_history.append({
-                "epoch": epoch,
-                "train_loss": train_loss,
-                "val_loss": val_loss,
-                "mAP": metrics_report["AP"],
-                "Fmax": metrics_report["Fmax"],
-            })
+            total_loss += loss.item()
+            all_preds.append(torch.sigmoid(logits).cpu().numpy())
+            all_labels.append(labels.cpu().numpy())
+            weight_stats.append(fusion_weights.detach().cpu().numpy())
 
-            # early stopping: pass val_loss, current F-max, and model
-            early_stop(val_loss, metrics_report["Fmax"], model)
+            if aux_outputs is not None:
+                lambda_values.append(float(aux_outputs['lambda'].item()))
 
-            if early_stop.stop():                                 # query the flag
-                break
+    y_pred = np.vstack(all_preds) if all_preds else np.zeros((0, 0), dtype=np.float32)
+    y_true = np.vstack(all_labels) if all_labels else np.zeros((0, 0), dtype=np.float32)
 
-    # ── Persist metrics to disk ─────────────────────────────────────────────
-    if pd is not None and plt is not None and metrics_history:
-        csv_path = os.path.join(cfg.log.out_dir, "metrics.csv")
-        df = pd.DataFrame(metrics_history)
-        df.to_csv(csv_path, index=False)
+    fmax, threshold, precision, recall = compute_fmax(y_true, y_pred)
 
-        # Plot common curves
-        plt.figure()
-        plt.plot(df["epoch"], df["train_loss"], label="Train loss")
-        plt.plot(df["epoch"], df["val_loss"], label="Val loss")
-        if "Fmax" in df.columns:
-            plt.plot(df["epoch"], df["Fmax"], label="F‑max")
-        if "mAP" in df.columns:
-            plt.plot(df["epoch"], df["mAP"], label="mAP")
-        plt.xlabel("Epoch")
-        plt.legend()
-        plt.title(f"{cfg.dataset.embedding_type.upper()} training curves")
-        plt.tight_layout()
-        fig_path = os.path.join(cfg.log.out_dir, "training_curve.png")
-        plt.savefig(fig_path)
-        plt.close()
-        logger.info(f"Training curves saved: {fig_path}")
-    elif pd is None or plt is None:
-        logger.warning("pandas/matplotlib not installed; skipping CSV/plot export.")
+    all_weights = np.vstack(weight_stats) if weight_stats else np.zeros((0, 4), dtype=np.float32)
+    avg_weights = all_weights.mean(0) if len(all_weights) else np.zeros(4, dtype=np.float32)
 
-    # restore best model weights (by chosen monitor) and save
-    if early_stop.has_backup_model():
-        model = early_stop.restore(model)
-        ckpt_dir = Path(cfg.log.out_dir)
-        ckpt_dir.mkdir(parents=True, exist_ok=True)
-        best_path = ckpt_dir / "best.pt"
-        torch.save(model.state_dict(), best_path)
-        logger.debug(f"Best checkpoint saved to: {best_path}")
-    logger.debug(f"Best checkpoint object: {best_path}")
-    
+    result = {
+        'loss': total_loss / max(1, len(loader)),
+        'fmax': float(fmax),
+        'threshold': float(threshold),
+        'precision': float(precision),
+        'recall': float(recall),
+        'weight_seq': float(avg_weights[0]),
+        'weight_text': float(avg_weights[1]),
+        'weight_struct': float(avg_weights[2]),
+        'weight_ppi': float(avg_weights[3]),
+    }
+
+    if lambda_values:
+        result['late_fusion_lambda'] = float(np.mean(lambda_values))
+
+    if compute_weight_stats_detailed and len(all_weights):
+        weights_array = all_weights
+        result['weight_stats_detailed'] = {
+            'mean': weights_array.mean(axis=0).tolist(),
+            'std': weights_array.std(axis=0).tolist(),
+            'min': weights_array.min(axis=0).tolist(),
+            'max': weights_array.max(axis=0).tolist(),
+            'median': np.median(weights_array, axis=0).tolist(),
+        }
+
+    return result
+
+
+def train_fusion_model(
+    seq_model: str,
+    aspect: str,
+    fusion_type: str,
+    data_dir: str,
+    embedding_dirs: Dict[str, str],
+    obo_file: str,
+    modality_dropout: float = 0.1,
+    output_base: str = '.',
+    use_late_fusion: bool = False,
+    aux_loss_weight: float = 0.1
+) -> Dict:
+    """Train a model with specified fusion type.
+
+    Args:
+        seq_model: Sequence model type ('prott5' or 'esm')
+        aspect: GO aspect ('BPO', 'CCO', or 'MFO')
+        fusion_type: Fusion method to use
+        data_dir: Path to data directory
+        embedding_dirs: Dict mapping modality to embedding directory
+        obo_file: Path to GO ontology file
+        modality_dropout: Dropout rate for modalities during training
+        output_base: Base output directory
+        use_late_fusion: Whether to use late fusion with auxiliary heads
+        aux_loss_weight: Weight for auxiliary loss
+
+    Returns:
+        Dict with training results
+    """
+    output_dir = Path(output_base) / 'fusion_comparison' / seq_model / aspect / fusion_type
+    results_file = output_dir / "results.json"
+
+    # Skip if already trained
+    if results_file.exists():
+        print(f"\n{'='*70}")
+        print(f"SKIPPING: {fusion_type} for {aspect}")
+        print(f"Results already exist: {results_file}")
+        print(f"{'='*70}\n")
+        with open(results_file, 'r') as f:
+            return json.load(f)
+
+    seed = 42
+    set_seed(seed)
+
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # Configuration
+    config = {
+        'hidden_dim': 512,
+        'dropout': 0.4,
+        'modality_dropout': modality_dropout,
+        'lr': 1e-3,
+        'weight_decay': 0.01,
+        'batch_size': 32,
+        'max_epochs': 50,
+        'patience': 5,
+        'warmup_ratio': 0.1,
+        'min_delta_fmax': 1e-4,
+        'min_delta_loss': 1e-4,
+        'use_late_fusion': use_late_fusion,
+        'aux_loss_weight': aux_loss_weight,
+    }
+
+    data_dir = Path(data_dir)
+    obo_file = Path(obo_file)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    fusion_params = count_fusion_parameters(fusion_type, config['hidden_dim'])
+
+    print(f"\n{'='*70}")
+    print(f"Training Fusion Model")
+    print(f"Fusion Type: {fusion_type.upper()}")
+    print(f"Seq Model: {seq_model.upper()}, Aspect: {aspect}")
+    print(f"Modality Dropout: {config['modality_dropout']}")
+    print(f"Fusion Module Parameters: {fusion_params:,}")
+    print(f"Output: {output_dir}")
+    print(f"{'='*70}\n")
+
+    # Load datasets
+    print("Loading datasets...")
+    train_dataset = MultiModalDataset(
+        data_dir, embedding_dirs, seq_model, aspect, 'train',
+        normalize='standard'
+    )
+    val_dataset = MultiModalDataset(
+        data_dir, embedding_dirs, seq_model, aspect, 'valid',
+        normalize='standard', norm_stats=train_dataset.norm_stats
+    )
+    test_dataset = MultiModalDataset(
+        data_dir, embedding_dirs, seq_model, aspect, 'test',
+        normalize='standard', norm_stats=train_dataset.norm_stats
+    )
+
+    train_loader = DataLoader(
+        train_dataset, batch_size=config['batch_size'], shuffle=True,
+        collate_fn=collate_fn, num_workers=8, pin_memory=True,
+        worker_init_fn=worker_init_fn
+    )
+    val_loader = DataLoader(
+        val_dataset, batch_size=config['batch_size'], shuffle=False,
+        collate_fn=collate_fn, num_workers=8, pin_memory=True
+    )
+    test_loader = DataLoader(
+        test_dataset, batch_size=config['batch_size'], shuffle=False,
+        collate_fn=collate_fn, num_workers=8, pin_memory=True
+    )
+
+    # Load GO terms for CAFA evaluation
+    go_terms_file = data_dir / f"{aspect}_go_terms.json"
+    with open(go_terms_file, 'r') as f:
+        go_terms = json.load(f)
+
+    test_protein_ids = test_dataset.protein_ids.tolist()
+
+    # Create model
+    num_go_terms = train_dataset.labels.shape[1]
+    seq_dim = 1024 if seq_model == 'prott5' else 1280
+
+    model = create_model(
+        fusion_type=fusion_type,
+        seq_dim=seq_dim,
+        text_dim=768,
+        struct_dim=512,
+        ppi_dim=512,
+        hidden_dim=config['hidden_dim'],
+        num_go_terms=num_go_terms,
+        dropout=config['dropout'],
+        modality_dropout=config['modality_dropout'],
+        use_late_fusion=config['use_late_fusion'],
+    ).to(device)
+
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"Total model parameters: {n_params:,}")
+    print(f"Fusion module parameters: {fusion_params:,}")
+    if config['use_late_fusion']:
+        print(f"Late Fusion: ENABLED (aux_loss_weight={config['aux_loss_weight']})")
+
+    criterion = nn.BCEWithLogitsLoss().to(device)
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=config['lr'], weight_decay=config['weight_decay']
+    )
+
+    num_training_steps = len(train_loader) * config['max_epochs']
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer, max_lr=config['lr'], total_steps=num_training_steps,
+        pct_start=config['warmup_ratio'], anneal_strategy='cos'
+    )
+
+    # Training loop
+    best_val_fmax = 0.0
+    loss_at_best_fmax = float('inf')
+    best_epoch = 0
+    patience_counter = 0
+    history = []
+
+    print("\nStarting training...")
+    for epoch in range(1, config['max_epochs'] + 1):
+        train_metrics = train_epoch(
+            model, train_loader, optimizer, criterion, scheduler, device,
+            aux_loss_weight=config['aux_loss_weight'] if config['use_late_fusion'] else 0.0
+        )
+        val_metrics = evaluate(model, val_loader, criterion, device)
+
+        print(f"\nEpoch {epoch}/{config['max_epochs']}")
+        print(f"  Train Loss: {train_metrics['loss']:.4f}", end="")
+        if 'aux_loss' in train_metrics:
+            print(f" (aux: {train_metrics['aux_loss']:.4f})", end="")
+        print()
+        print(f"  Val Loss: {val_metrics['loss']:.4f}, Fmax: {val_metrics['fmax']:.4f}")
+        print(f"  Weights: seq={val_metrics['weight_seq']:.3f}, text={val_metrics['weight_text']:.3f}, "
+              f"struct={val_metrics['weight_struct']:.3f}, ppi={val_metrics['weight_ppi']:.3f}", end="")
+        if 'late_fusion_lambda' in val_metrics:
+            print(f", lambda={val_metrics['late_fusion_lambda']:.3f}", end="")
+        print()
+
+        history.append({
+            'epoch': epoch,
+            **{f'train_{k}': v for k, v in train_metrics.items()},
+            **{f'val_{k}': v for k, v in val_metrics.items()},
+            'lr': scheduler.get_last_lr()[0]
+        })
+
+        current_fmax = val_metrics['fmax']
+        current_loss = val_metrics['loss']
+
+        fmax_better = current_fmax > best_val_fmax + config['min_delta_fmax']
+        fmax_similar = abs(current_fmax - best_val_fmax) <= config['min_delta_fmax']
+        loss_better = current_loss < loss_at_best_fmax - config['min_delta_loss']
+
+        if fmax_better or (fmax_similar and loss_better):
+            best_val_fmax = current_fmax
+            loss_at_best_fmax = current_loss
+            best_epoch = epoch
+            torch.save(model.state_dict(), output_dir / "best_model.pt")
+            print(f"  * Best model saved (Fmax: {best_val_fmax:.4f})")
+            patience_counter = 0
+        else:
+            patience_counter += 1
+
+        if patience_counter >= config['patience']:
+            print(f"\nEarly stopping at epoch {epoch}")
+            break
+
+    # Load best model
+    model.load_state_dict(torch.load(output_dir / "best_model.pt", map_location=device))
+
+    # Test evaluation
+    print("\n" + "="*70)
+    print("TEST EVALUATION")
+    print("="*70)
+
+    test_metrics = evaluate(model, test_loader, criterion, device, compute_weight_stats_detailed=True)
+
+    print(f"\nTest Results:")
+    print(f"  Fmax: {test_metrics['fmax']:.4f}")
+    print(f"  Precision: {test_metrics['precision']:.4f}")
+    print(f"  Recall: {test_metrics['recall']:.4f}")
+
+    if 'weight_stats_detailed' in test_metrics:
+        print(f"\nFusion Weight Statistics:")
+        modality_names = ['seq', 'text', 'struct', 'ppi']
+        stats = test_metrics['weight_stats_detailed']
+        print(f"  {'Modality':<10} {'Mean':>8} {'Std':>8} {'Min':>8} {'Max':>8}")
+        print(f"  {'-'*42}")
+        for i, name in enumerate(modality_names):
+            print(f"  {name:<10} {stats['mean'][i]:>8.4f} {stats['std'][i]:>8.4f} "
+                  f"{stats['min'][i]:>8.4f} {stats['max'][i]:>8.4f}")
+
+    # CAFA evaluation
+    cafa_metrics = {}
+    if obo_file.exists():
+        print("\n" + "="*70)
+        print("CAFA EVALUATION")
+        print("="*70)
+
+        cafa_metrics = evaluate_with_cafa(
+            model=model,
+            loader=test_loader,
+            device=device,
+            protein_ids=test_protein_ids,
+            go_terms=go_terms,
+            obo_file=str(obo_file),
+            output_dir=str(output_dir / 'cafa_eval'),
+            model_name=f"{seq_model}_{fusion_type}",
+            train_labels=train_dataset.labels
+        )
+
+    # Save results
+    results = {
+        'seq_model': seq_model,
+        'aspect': aspect,
+        'fusion_type': fusion_type,
+        'modality_dropout': float(config['modality_dropout']),
+        'num_go_terms': int(num_go_terms),
+        'num_parameters': int(n_params),
+        'fusion_parameters': int(fusion_params),
+        'seed': int(seed),
+        'config': config,
+        'test_fmax': float(test_metrics['fmax']),
+        'test_precision': float(test_metrics['precision']),
+        'test_recall': float(test_metrics['recall']),
+        'test_threshold': float(test_metrics['threshold']),
+        'weight_seq': float(test_metrics['weight_seq']),
+        'weight_text': float(test_metrics['weight_text']),
+        'weight_struct': float(test_metrics['weight_struct']),
+        'weight_ppi': float(test_metrics['weight_ppi']),
+        'best_val_fmax': float(best_val_fmax),
+        'best_epoch': int(best_epoch),
+        'total_epochs': int(epoch),
+    }
+
+    if 'weight_stats_detailed' in test_metrics:
+        results['weight_stats_detailed'] = test_metrics['weight_stats_detailed']
+    if 'late_fusion_lambda' in test_metrics:
+        results['late_fusion_lambda'] = float(test_metrics['late_fusion_lambda'])
+
+    if cafa_metrics:
+        for key, value in cafa_metrics.items():
+            if isinstance(value, (int, float)):
+                results[f'cafa_{key}'] = float(value)
+
+    with open(results_file, 'w') as f:
+        json.dump(results, f, indent=2)
+
+    pd.DataFrame(history).to_csv(output_dir / "history.csv", index=False)
+    print(f"\n* Results saved to: {output_dir}")
+
+    return results
+
+
+def run_all_experiments(
+    seq_model: str = 'prott5',
+    aspects: Optional[List[str]] = None,
+    fusion_types: Optional[List[str]] = None,
+    data_dir: str = './data',
+    embedding_dirs: Optional[Dict[str, str]] = None,
+    obo_file: str = './go.obo',
+    modality_dropout: float = 0.1,
+    output_base: str = '.',
+    use_late_fusion: bool = False,
+    aux_loss_weight: float = 0.1
+) -> List[Dict]:
+    """Run all fusion comparison experiments.
+
+    Args:
+        seq_model: Sequence model type
+        aspects: List of GO aspects to train
+        fusion_types: List of fusion methods to compare
+        data_dir: Path to data directory
+        embedding_dirs: Dict mapping modality to embedding directory
+        obo_file: Path to GO ontology file
+        modality_dropout: Dropout rate for modalities
+        output_base: Base output directory
+        use_late_fusion: Whether to use late fusion
+        aux_loss_weight: Weight for auxiliary loss
+
+    Returns:
+        List of result dicts for each experiment
+    """
+    if aspects is None:
+        aspects = ['MFO', 'CCO', 'BPO']
+    if fusion_types is None:
+        fusion_types = ['concat', 'gated_bilinear']
+
+    # Default embedding directories
+    if embedding_dirs is None:
+        embedding_dirs = {
+            'text': f'{data_dir}/embedding_cache/exp_text_embeddings',
+            'prott5': f'{data_dir}/embedding_cache/prott5',
+            'esm': f'{data_dir}/embedding_cache/esm',
+            'struct': f'{data_dir}/embedding_cache/IF1',
+            'ppi': f'{data_dir}/embedding_cache/ppi'
+        }
+
+    all_results = []
+
+    for aspect in aspects:
+        for fusion_type in fusion_types:
+            print(f"\n{'#'*70}")
+            print(f"# {seq_model.upper()} - {aspect} - {fusion_type.upper()}")
+            print(f"{'#'*70}")
+
+            try:
+                results = train_fusion_model(
+                    seq_model=seq_model,
+                    aspect=aspect,
+                    fusion_type=fusion_type,
+                    data_dir=data_dir,
+                    embedding_dirs=embedding_dirs,
+                    obo_file=obo_file,
+                    modality_dropout=modality_dropout,
+                    output_base=output_base,
+                    use_late_fusion=use_late_fusion,
+                    aux_loss_weight=aux_loss_weight,
+                )
+                all_results.append(results)
+            except Exception as e:
+                print(f"\nError training {fusion_type} for {aspect}: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+
+    # Print summary
+    print("\n" + "="*90)
+    print("SUMMARY: Fusion Method Comparison")
+    print("="*90)
+
+    summary_df = pd.DataFrame(all_results)
+    summary_file = Path(output_base) / 'fusion_comparison' / seq_model / 'summary.csv'
+    summary_df.to_csv(summary_file, index=False)
+
+    print(f"\n{'Aspect':<6} {'Fusion':<18} {'Test Fmax':<10} {'CAFA Fmax':<10} {'Fusion Params':<14}")
+    print("-" * 70)
+
+    for r in all_results:
+        cafa_fmax = r.get('cafa_fmax', '-')
+        cafa_str = f"{cafa_fmax:.4f}" if isinstance(cafa_fmax, float) else cafa_fmax
+        fusion_params = r.get('fusion_parameters', 0)
+        print(f"{r['aspect']:<6} {r['fusion_type']:<18} {r['test_fmax']:<10.4f} "
+              f"{cafa_str:<10} {fusion_params:<14,}")
+
+    print(f"\n* Summary saved to: {summary_file}")
+    return all_results
+
+
 if __name__ == "__main__":
-    main()
+    available_fusion_types = list(FUSION_REGISTRY.keys())
+
+    parser = argparse.ArgumentParser(
+        description='MMFP: Multimodal Fusion for Protein Function Prediction'
+    )
+    parser.add_argument('--seq-model', type=str, default='prott5',
+                        choices=['prott5', 'esm'],
+                        help='Sequence model type')
+    parser.add_argument('--aspects', type=str, nargs='+',
+                        default=['BPO', 'MFO', 'CCO'],
+                        help='GO aspects to train')
+    parser.add_argument('--fusion-types', type=str, nargs='+',
+                        default=['concat', 'gated_bilinear'],
+                        choices=available_fusion_types,
+                        help=f'Fusion types to compare. Available: {available_fusion_types}')
+    parser.add_argument('--data-dir', type=str, default='./data',
+                        help='Path to data directory')
+    parser.add_argument('--obo-file', type=str, default='./go.obo',
+                        help='Path to GO ontology file')
+    parser.add_argument('--modality-dropout', type=float, default=0.1,
+                        help='Dropout rate for non-sequence modalities during training')
+    parser.add_argument('--output-base', type=str, default='./results',
+                        help='Base output directory')
+    parser.add_argument('--single', action='store_true',
+                        help='Run single experiment (first aspect and fusion type)')
+    parser.add_argument('--use-late-fusion', action='store_true',
+                        help='Enable auxiliary heads + hybrid gated late fusion')
+    parser.add_argument('--aux-loss-weight', type=float, default=0.8,
+                        help='Weight for auxiliary supervision loss')
+
+    args = parser.parse_args()
+
+    # Default embedding directories
+    embedding_dirs = {
+        'text': f'{args.data_dir}/embedding_cache/exp_text_embeddings',
+        'prott5': f'{args.data_dir}/embedding_cache/prott5',
+        'esm': f'{args.data_dir}/embedding_cache/esm',
+        'struct': f'{args.data_dir}/embedding_cache/IF1',
+        'ppi': f'{args.data_dir}/embedding_cache/ppi'
+    }
+
+    if args.single:
+        train_fusion_model(
+            seq_model=args.seq_model,
+            aspect=args.aspects[0],
+            fusion_type=args.fusion_types[0],
+            data_dir=args.data_dir,
+            embedding_dirs=embedding_dirs,
+            obo_file=args.obo_file,
+            modality_dropout=args.modality_dropout,
+            output_base=args.output_base,
+            use_late_fusion=args.use_late_fusion,
+            aux_loss_weight=args.aux_loss_weight,
+        )
+    else:
+        run_all_experiments(
+            seq_model=args.seq_model,
+            aspects=args.aspects,
+            fusion_types=args.fusion_types,
+            data_dir=args.data_dir,
+            embedding_dirs=embedding_dirs,
+            obo_file=args.obo_file,
+            modality_dropout=args.modality_dropout,
+            output_base=args.output_base,
+            use_late_fusion=args.use_late_fusion,
+            aux_loss_weight=args.aux_loss_weight,
+            
+        )

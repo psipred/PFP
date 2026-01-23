@@ -1,46 +1,67 @@
-# Ignore secret tokens and credentials
-etc/aau_token
-
-# Ignore log files
-*.log
-cluster/prot2text/prot2text.log
-
-# Ignore Python cache files
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-cluster_embed/esm_embedding/__pycache__/
-
-# Ignore environment and data files
-.env
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
 *.egg-info/
-*.csv
-**/*.pt
-*.tsv
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Data files (add your data folder to keep repo size small)
+data/
+*.npy
+*.npz
 *.h5
 *.hdf5
-*.db
-*.sqlite
-*.bak
-*.tmp
-*.out
+*.pt
+*.pth
 
-# Ignore OS files
+# Results and checkpoints
+results/
+checkpoints/
+*.ckpt
+best_model.pt
+
+# Logs
+logs/
+*.log
+wandb/
+mlruns/
+
+# OS
 .DS_Store
-Thumbs.db 
-# Ignore project data, configuration, and output artifacts
-Data/
-Download
-outputs/
-runs/
-settings.py
-utils/go-basic.obo
-utils/*.pkl
-structure/experiment_pipeline/scripts/
-structure/experiment_pipeline/configs/
+Thumbs.db
 
-
- *.log
-**/checkpoints/
-**embedding_cache/
+# Temporary files
+tmp/
+temp/
+*.tmp

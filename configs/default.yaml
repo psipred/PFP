@@ -1,0 +1,52 @@
+# MMFP Default Configuration
+# Multimodal Fusion for Protein Function Prediction
+
+# Model Configuration
+model:
+  hidden_dim: 512
+  dropout: 0.4
+  modality_dropout: 0.1
+  fusion_type: gated_bilinear  # Options: concat, gated_bilinear, multihead_attn
+  use_late_fusion: false
+  protect_seq: true
+
+# Training Configuration
+training:
+  lr: 0.001
+  weight_decay: 0.01
+  batch_size: 32
+  max_epochs: 50
+  patience: 5
+  warmup_ratio: 0.1
+  min_delta_fmax: 0.0001
+  min_delta_loss: 0.0001
+  aux_loss_weight: 0.8
+
+# Data Configuration
+data:
+  seq_model: prott5  # Options: prott5, esm
+  aspects:
+    - BPO
+    - CCO
+    - MFO
+  normalize: standard  # Options: none, l2, standard, minmax
+
+# Modality Dimensions
+modality_dims:
+  prott5: 1024
+  esm: 1280
+  text: 768
+  struct: 512
+  ppi: 512
+
+# Paths (update these for your environment)
+paths:
+  data_dir: ./data
+  obo_file: ./go.obo
+  output_base: ./results
+  embedding_dirs:
+    text: ./data/embedding_cache/exp_text_embeddings
+    prott5: ./data/embedding_cache/prott5
+    esm: ./data/embedding_cache/esm
+    struct: ./data/embedding_cache/IF1
+    ppi: ./data/embedding_cache/ppi
