@@ -278,25 +278,10 @@ MMFP/
 └── README.md
 ```
 
-## Citation
 
-If you use this code in your research, please cite:
-
-```bibtex
-@article{mmfp2024,
-  title={Multimodal Fusion for Protein Function Prediction},
-  author={Your Name},
-  journal={},
-  year={2024}
-}
-```
 
 ## License
 
 MIT License
 
-## Acknowledgments
 
-- [ProtT5](https://github.com/agemagician/ProtTrans) for protein language model embeddings
-- [ESM](https://github.com/facebookresearch/esm) for sequence and structure embeddings
-- [cafaeval](https://github.com/BioComputingUP/CAFA-evaluator) for CAFA-compliant evaluation
