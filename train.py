@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
+from sklearn.metrics import average_precision_score
 
 from mmfp.models import (
     MultiModalFusionModel,
@@ -180,13 +181,27 @@ def evaluate(
             all_labels.append(labels.cpu().numpy())
             weight_stats.append(fusion_weights.detach().cpu().numpy())
 
-            if aux_outputs is not None:
+            if aux_outputs is not None and 'lambda' in aux_outputs:
                 lambda_values.append(float(aux_outputs['lambda'].item()))
 
     y_pred = np.vstack(all_preds) if all_preds else np.zeros((0, 0), dtype=np.float32)
     y_true = np.vstack(all_labels) if all_labels else np.zeros((0, 0), dtype=np.float32)
 
     fmax, threshold, precision, recall = compute_fmax(y_true, y_pred)
+
+    try:
+        micro_auprc = average_precision_score(y_true.ravel(), y_pred.ravel())
+    except Exception:
+        micro_auprc = float('nan')
+
+    macro_scores = []
+    for i in range(y_true.shape[1] if y_true.ndim == 2 else 0):
+        if np.any(y_true[:, i] == 1):
+            try:
+                macro_scores.append(average_precision_score(y_true[:, i], y_pred[:, i]))
+            except Exception:
+                pass
+    macro_auprc = float(np.mean(macro_scores)) if macro_scores else float('nan')
 
     all_weights = np.vstack(weight_stats) if weight_stats else np.zeros((0, 4), dtype=np.float32)
     avg_weights = all_weights.mean(0) if len(all_weights) else np.zeros(4, dtype=np.float32)
@@ -197,6 +212,8 @@ def evaluate(
         'threshold': float(threshold),
         'precision': float(precision),
         'recall': float(recall),
+        'micro_auprc': float(micro_auprc),
+        'macro_auprc': float(macro_auprc),
         'weight_seq': float(avg_weights[0]),
         'weight_text': float(avg_weights[1]),
         'weight_struct': float(avg_weights[2]),
@@ -226,10 +243,19 @@ def train_fusion_model(
     data_dir: str,
     embedding_dirs: Dict[str, str],
     obo_file: str,
+    train_embedding_dirs: Optional[Dict[str, str]] = None,
+    val_embedding_dirs: Optional[Dict[str, str]] = None,
+    test_embedding_dirs: Optional[Dict[str, str]] = None,
     modality_dropout: float = 0.1,
     output_base: str = '.',
     use_late_fusion: bool = False,
-    aux_loss_weight: float = 0.1
+    late_output_mode: str = 'hybrid',
+    aux_loss_weight: float = 0.1,
+    num_workers: int = 8,
+    ia_file: Optional[str] = None,
+    seed: int = 42,
+    ablation_name: Optional[str] = None,
+    config_label: Optional[str] = None,
 ) -> Dict:
     """Train a model with specified fusion type.
 
@@ -238,12 +264,21 @@ def train_fusion_model(
         aspect: GO aspect ('BPO', 'CCO', or 'MFO')
         fusion_type: Fusion method to use
         data_dir: Path to data directory
-        embedding_dirs: Dict mapping modality to embedding directory
+        embedding_dirs: Default dict mapping modality to embedding directory
+        train_embedding_dirs: Optional train split embedding dirs override
+        val_embedding_dirs: Optional validation split embedding dirs override
+        test_embedding_dirs: Optional test split embedding dirs override
         obo_file: Path to GO ontology file
         modality_dropout: Dropout rate for modalities during training
         output_base: Base output directory
         use_late_fusion: Whether to use late fusion with auxiliary heads
+        late_output_mode: 'hybrid' or 'aux_only' when late fusion is enabled
         aux_loss_weight: Weight for auxiliary loss
+        num_workers: Number of DataLoader workers
+        ia_file: Optional path to precomputed IA file
+        seed: Random seed for training
+        ablation_name: Optional human-readable ablation label
+        config_label: Optional technical configuration label
 
     Returns:
         Dict with training results
@@ -260,7 +295,6 @@ def train_fusion_model(
         with open(results_file, 'r') as f:
             return json.load(f)
 
-    seed = 42
     set_seed(seed)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -279,6 +313,7 @@ def train_fusion_model(
         'min_delta_fmax': 1e-4,
         'min_delta_loss': 1e-4,
         'use_late_fusion': use_late_fusion,
+        'late_output_mode': late_output_mode,
         'aux_loss_weight': aux_loss_weight,
     }
 
@@ -286,12 +321,17 @@ def train_fusion_model(
     obo_file = Path(obo_file)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    train_embedding_dirs = train_embedding_dirs or dict(embedding_dirs)
+    val_embedding_dirs = val_embedding_dirs or dict(embedding_dirs)
+    test_embedding_dirs = test_embedding_dirs or dict(embedding_dirs)
+
     fusion_params = count_fusion_parameters(fusion_type, config['hidden_dim'])
 
     print(f"\n{'='*70}")
     print(f"Training Fusion Model")
     print(f"Fusion Type: {fusion_type.upper()}")
     print(f"Seq Model: {seq_model.upper()}, Aspect: {aspect}")
+    print(f"Seed: {seed}")
     print(f"Modality Dropout: {config['modality_dropout']}")
     print(f"Fusion Module Parameters: {fusion_params:,}")
     print(f"Output: {output_dir}")
@@ -300,30 +340,30 @@ def train_fusion_model(
     # Load datasets
     print("Loading datasets...")
     train_dataset = MultiModalDataset(
-        data_dir, embedding_dirs, seq_model, aspect, 'train',
+        data_dir, train_embedding_dirs, seq_model, aspect, 'train',
         normalize='standard'
     )
     val_dataset = MultiModalDataset(
-        data_dir, embedding_dirs, seq_model, aspect, 'valid',
+        data_dir, val_embedding_dirs, seq_model, aspect, 'valid',
         normalize='standard', norm_stats=train_dataset.norm_stats
     )
     test_dataset = MultiModalDataset(
-        data_dir, embedding_dirs, seq_model, aspect, 'test',
+        data_dir, test_embedding_dirs, seq_model, aspect, 'test',
         normalize='standard', norm_stats=train_dataset.norm_stats
     )
 
     train_loader = DataLoader(
         train_dataset, batch_size=config['batch_size'], shuffle=True,
-        collate_fn=collate_fn, num_workers=8, pin_memory=True,
+        collate_fn=collate_fn, num_workers=num_workers, pin_memory=(device == 'cuda'),
         worker_init_fn=worker_init_fn
     )
     val_loader = DataLoader(
         val_dataset, batch_size=config['batch_size'], shuffle=False,
-        collate_fn=collate_fn, num_workers=8, pin_memory=True
+        collate_fn=collate_fn, num_workers=num_workers, pin_memory=(device == 'cuda')
     )
     test_loader = DataLoader(
         test_dataset, batch_size=config['batch_size'], shuffle=False,
-        collate_fn=collate_fn, num_workers=8, pin_memory=True
+        collate_fn=collate_fn, num_workers=num_workers, pin_memory=(device == 'cuda')
     )
 
     # Load GO terms for CAFA evaluation
@@ -348,13 +388,17 @@ def train_fusion_model(
         dropout=config['dropout'],
         modality_dropout=config['modality_dropout'],
         use_late_fusion=config['use_late_fusion'],
+        late_output_mode=config['late_output_mode'],
     ).to(device)
 
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Total model parameters: {n_params:,}")
     print(f"Fusion module parameters: {fusion_params:,}")
     if config['use_late_fusion']:
-        print(f"Late Fusion: ENABLED (aux_loss_weight={config['aux_loss_weight']})")
+        print(
+            f"Late Fusion: ENABLED "
+            f"(mode={config['late_output_mode']}, aux_loss_weight={config['aux_loss_weight']})"
+        )
 
     criterion = nn.BCEWithLogitsLoss().to(device)
     optimizer = torch.optim.AdamW(
@@ -434,6 +478,8 @@ def train_fusion_model(
 
     print(f"\nTest Results:")
     print(f"  Fmax: {test_metrics['fmax']:.4f}")
+    print(f"  Micro-AUPRC: {test_metrics['micro_auprc']:.4f}")
+    print(f"  Macro-AUPRC: {test_metrics['macro_auprc']:.4f}")
     print(f"  Precision: {test_metrics['precision']:.4f}")
     print(f"  Recall: {test_metrics['recall']:.4f}")
 
@@ -463,7 +509,8 @@ def train_fusion_model(
             obo_file=str(obo_file),
             output_dir=str(output_dir / 'cafa_eval'),
             model_name=f"{seq_model}_{fusion_type}",
-            train_labels=train_dataset.labels
+            train_labels=train_dataset.labels,
+            ia_file=ia_file
         )
 
     # Save results
@@ -471,6 +518,15 @@ def train_fusion_model(
         'seq_model': seq_model,
         'aspect': aspect,
         'fusion_type': fusion_type,
+        'ablation_name': ablation_name,
+        'config_label': config_label,
+        'use_late_fusion': bool(config['use_late_fusion']),
+        'late_output_mode': config['late_output_mode'],
+        'text_embedding_dirs_by_split': {
+            'train': str(train_embedding_dirs['text']),
+            'valid': str(val_embedding_dirs['text']),
+            'test': str(test_embedding_dirs['text']),
+        },
         'modality_dropout': float(config['modality_dropout']),
         'num_go_terms': int(num_go_terms),
         'num_parameters': int(n_params),
@@ -478,6 +534,8 @@ def train_fusion_model(
         'seed': int(seed),
         'config': config,
         'test_fmax': float(test_metrics['fmax']),
+        'test_micro_auprc': float(test_metrics['micro_auprc']),
+        'test_macro_auprc': float(test_metrics['macro_auprc']),
         'test_precision': float(test_metrics['precision']),
         'test_recall': float(test_metrics['recall']),
         'test_threshold': float(test_metrics['threshold']),
@@ -519,7 +577,11 @@ def run_all_experiments(
     modality_dropout: float = 0.1,
     output_base: str = '.',
     use_late_fusion: bool = False,
-    aux_loss_weight: float = 0.1
+    late_output_mode: str = 'hybrid',
+    aux_loss_weight: float = 0.1,
+    num_workers: int = 8,
+    ia_file_dir: Optional[str] = None,
+    seed: int = 42,
 ) -> List[Dict]:
     """Run all fusion comparison experiments.
 
@@ -533,7 +595,11 @@ def run_all_experiments(
         modality_dropout: Dropout rate for modalities
         output_base: Base output directory
         use_late_fusion: Whether to use late fusion
+        late_output_mode: 'hybrid' or 'aux_only' when late fusion is enabled
         aux_loss_weight: Weight for auxiliary loss
+        num_workers: Number of DataLoader workers
+        ia_file_dir: Optional directory containing <ASPECT>_ia.txt files
+        seed: Random seed for training
 
     Returns:
         List of result dicts for each experiment
@@ -562,6 +628,11 @@ def run_all_experiments(
             print(f"{'#'*70}")
 
             try:
+                ia_file = None
+                if ia_file_dir:
+                    candidate = Path(ia_file_dir) / f"{aspect}_ia.txt"
+                    if candidate.exists():
+                        ia_file = str(candidate)
                 results = train_fusion_model(
                     seq_model=seq_model,
                     aspect=aspect,
@@ -572,7 +643,11 @@ def run_all_experiments(
                     modality_dropout=modality_dropout,
                     output_base=output_base,
                     use_late_fusion=use_late_fusion,
+                    late_output_mode=late_output_mode,
                     aux_loss_weight=aux_loss_weight,
+                    num_workers=num_workers,
+                    ia_file=ia_file,
+                    seed=seed,
                 )
                 all_results.append(results)
             except Exception as e:
@@ -632,8 +707,29 @@ if __name__ == "__main__":
                         help='Run single experiment (first aspect and fusion type)')
     parser.add_argument('--use-late-fusion', action='store_true',
                         help='Enable auxiliary heads + hybrid gated late fusion')
+    parser.add_argument('--late-output-mode', type=str, default='hybrid',
+                        choices=['hybrid', 'aux_only'],
+                        help='Final prediction path when late fusion is enabled')
     parser.add_argument('--aux-loss-weight', type=float, default=0.8,
                         help='Weight for auxiliary supervision loss')
+    parser.add_argument('--text-embedding-dir', type=str, default=None,
+                        help='Override text embedding directory (for historical text experiments)')
+    parser.add_argument('--train-text-embedding-dir', type=str, default=None,
+                        help='Override train split text embedding directory')
+    parser.add_argument('--valid-text-embedding-dir', type=str, default=None,
+                        help='Override validation split text embedding directory')
+    parser.add_argument('--test-text-embedding-dir', type=str, default=None,
+                        help='Override test split text embedding directory')
+    parser.add_argument('--num-workers', type=int, default=8,
+                        help='Number of DataLoader workers')
+    parser.add_argument('--ia-file-dir', type=str, default=None,
+                        help='Directory containing precomputed <ASPECT>_ia.txt files')
+    parser.add_argument('--seed', type=int, default=42,
+                        help='Random seed for training')
+    parser.add_argument('--no-struct', action='store_true',
+                        help='Disable struct modality (for seq+text experiments)')
+    parser.add_argument('--no-ppi', action='store_true',
+                        help='Disable PPI modality (for seq+text experiments)')
 
     args = parser.parse_args()
 
@@ -646,6 +742,35 @@ if __name__ == "__main__":
         'ppi': f'{args.data_dir}/embedding_cache/ppi'
     }
 
+    if args.text_embedding_dir:
+        embedding_dirs['text'] = args.text_embedding_dir
+
+    train_embedding_dirs = dict(embedding_dirs)
+    val_embedding_dirs = dict(embedding_dirs)
+    test_embedding_dirs = dict(embedding_dirs)
+
+    if args.train_text_embedding_dir:
+        train_embedding_dirs['text'] = args.train_text_embedding_dir
+    if args.valid_text_embedding_dir:
+        val_embedding_dirs['text'] = args.valid_text_embedding_dir
+    if args.test_text_embedding_dir:
+        test_embedding_dirs['text'] = args.test_text_embedding_dir
+
+    # For seq+text experiments, point to empty dirs so masks = 0
+    if args.no_struct or args.no_ppi:
+        empty_dir = Path(args.output_base) / '_empty_modality'
+        empty_dir.mkdir(parents=True, exist_ok=True)
+        if args.no_struct:
+            embedding_dirs['struct'] = str(empty_dir)
+            train_embedding_dirs['struct'] = str(empty_dir)
+            val_embedding_dirs['struct'] = str(empty_dir)
+            test_embedding_dirs['struct'] = str(empty_dir)
+        if args.no_ppi:
+            embedding_dirs['ppi'] = str(empty_dir)
+            train_embedding_dirs['ppi'] = str(empty_dir)
+            val_embedding_dirs['ppi'] = str(empty_dir)
+            test_embedding_dirs['ppi'] = str(empty_dir)
+
     if args.single:
         train_fusion_model(
             seq_model=args.seq_model,
@@ -653,11 +778,22 @@ if __name__ == "__main__":
             fusion_type=args.fusion_types[0],
             data_dir=args.data_dir,
             embedding_dirs=embedding_dirs,
+            train_embedding_dirs=train_embedding_dirs,
+            val_embedding_dirs=val_embedding_dirs,
+            test_embedding_dirs=test_embedding_dirs,
             obo_file=args.obo_file,
             modality_dropout=args.modality_dropout,
             output_base=args.output_base,
             use_late_fusion=args.use_late_fusion,
+            late_output_mode=args.late_output_mode,
             aux_loss_weight=args.aux_loss_weight,
+            num_workers=args.num_workers,
+            ia_file=(
+                str(Path(args.ia_file_dir) / f"{args.aspects[0]}_ia.txt")
+                if args.ia_file_dir and (Path(args.ia_file_dir) / f"{args.aspects[0]}_ia.txt").exists()
+                else None
+            ),
+            seed=args.seed,
         )
     else:
         run_all_experiments(
@@ -670,6 +806,9 @@ if __name__ == "__main__":
             modality_dropout=args.modality_dropout,
             output_base=args.output_base,
             use_late_fusion=args.use_late_fusion,
+            late_output_mode=args.late_output_mode,
             aux_loss_weight=args.aux_loss_weight,
-            
+            num_workers=args.num_workers,
+            ia_file_dir=args.ia_file_dir,
+            seed=args.seed,
         )

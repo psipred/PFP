@@ -5,6 +5,7 @@ from .models import (
     ModalityEncoder,
     ConcatFusion,
     BilinearGatedFusion,
+    AuxOnlyUniformFusion,
     create_model,
     FUSION_REGISTRY,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "ModalityEncoder",
     "ConcatFusion",
     "BilinearGatedFusion",
+    "AuxOnlyUniformFusion",
     "create_model",
     "FUSION_REGISTRY",
     "MultiModalDataset",

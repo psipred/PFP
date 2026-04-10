@@ -47,6 +47,9 @@ data/
 
 # Results and checkpoints
 results/
+
+# Staging archives for Zenodo upload
+staging/
 checkpoints/
 *.ckpt
 best_model.pt

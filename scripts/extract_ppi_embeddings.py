@@ -25,6 +25,7 @@ Output:
     data/embedding_cache/ppi/{protein_id}.npy (512-D vectors)
 """
 
+import os
 from pathlib import Path
 import numpy as np
 import h5py
@@ -38,10 +39,10 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # CONFIGURATION - Update these paths for your system
 # ============================================================================
-STRING_H5_FILE = "/home/zijianzhou/project/PFP/experiments/PLMs/data/string/protein.network.embeddings.v12.0.h5"
-STRING_ALIAS_FILE = "/home/zijianzhou/project/PFP/experiments/PLMs/data/string/protein.aliases.v12.0.txt"
-CAFA_ASSESSMENT_DIR = "/home/zijianzhou/project/CAFA_assessment_tool"
-CAFA3_ID_MAPPING = "/home/zijianzhou/project/PFP/experiments/PLMs/data/cafa3_id_mapping.json"
+STRING_H5_FILE = os.environ.get("STRING_H5_FILE", "protein.network.embeddings.v12.0.h5")
+STRING_ALIAS_FILE = os.environ.get("STRING_ALIAS_FILE", "protein.aliases.v12.0.txt")
+CAFA_ASSESSMENT_DIR = os.environ.get("CAFA_ASSESSMENT_DIR", "CAFA_assessment_tool")
+CAFA3_ID_MAPPING = os.environ.get("CAFA3_ID_MAPPING", "cafa3_id_mapping.json")
 DATA_DIR = "./data"
 OUTPUT_DIR = "./data/embedding_cache/ppi"
 # ============================================================================

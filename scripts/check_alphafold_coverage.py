@@ -823,12 +823,22 @@ def download_structures_parallel(results, output_dir, num_workers=20):
 
 def main():
     """Main execution."""
-    # Paths - MODIFY THESE FOR YOUR SETUP
-    data_dir = Path("../data")
-    cafa_assessment_dir = Path("/home/zijianzhou/project/CAFA_assessment_tool")
-    output_file = Path("../data/alphafold_coverage_results.txt")
-    pdb_output_dir = Path("../data/alphafold_structures")  # Where to save PDB files
-    
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Check AlphaFold coverage for CAFA3 proteins")
+    parser.add_argument("--data-dir", type=str, default="../data", help="Data directory")
+    parser.add_argument("--cafa-assessment-dir", type=str,
+                        default=os.environ.get("CAFA_ASSESSMENT_DIR", "CAFA_assessment_tool"),
+                        help="Path to CAFA assessment tool")
+    parser.add_argument("--output-file", type=str, default="../data/alphafold_coverage_results.txt")
+    parser.add_argument("--pdb-output-dir", type=str, default="../data/alphafold_structures")
+    args = parser.parse_args()
+
+    data_dir = Path(args.data_dir)
+    cafa_assessment_dir = Path(args.cafa_assessment_dir)
+    output_file = Path(args.output_file)
+    pdb_output_dir = Path(args.pdb_output_dir)
+
     # Number of parallel workers
     num_workers_check = 1000  # For checking coverage
     num_workers_download = 20  # For downloading PDB files

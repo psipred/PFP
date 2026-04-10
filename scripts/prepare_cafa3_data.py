@@ -12,7 +12,7 @@ Usage:
     python scripts/prepare_cafa3_data.py
 
 Input:
-    Raw CAFA3 CSV files from: /home/zijianzhou/Datasets/cafa3
+    Raw CAFA3 CSV files (set via --cafa3-dir or CAFA3_RAW_DIR env var)
     - bp-training.csv, bp-validation.csv, bp-test.csv
     - cc-training.csv, cc-validation.csv, cc-test.csv
     - mf-training.csv, mf-validation.csv, mf-test.csv
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # CONFIGURATION - Update these paths as needed
 # ============================================================================
-CAFA3_RAW_DIR = "/home/zijianzhou/Datasets/cafa3"
+CAFA3_RAW_DIR = os.environ.get("CAFA3_RAW_DIR", "cafa3_raw")
 OUTPUT_DIR = "./data"
 # ============================================================================
 

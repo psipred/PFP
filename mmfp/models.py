@@ -3,6 +3,7 @@
 This module implements various fusion techniques for combining protein modalities:
 - Concatenation (baseline)
 - Bilinear gated fusion (pairwise interactions)
+- Aux-only uniform fusion (used for aux-head-only ablations)
 """
 
 import torch
@@ -152,10 +153,28 @@ class BilinearGatedFusion(BaseFusion):
         return z, weights
 
 
+class AuxOnlyUniformFusion(BaseFusion):
+    """Uniform average over available modalities.
+
+    This zero-parameter fusion is used for the aux-head-only ablation where the
+    final prediction is produced by averaging per-modality auxiliary logits over
+    available modalities.
+    """
+
+    def __init__(self, hidden_dim: int, n_modalities: int = 4, dropout: float = 0.3):
+        super().__init__(hidden_dim, n_modalities, dropout)
+
+    def forward(self, H: torch.Tensor, M: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        weights = M / M.sum(dim=1, keepdim=True).clamp(min=1)
+        z = self._weighted_sum(H, weights)
+        return z, weights
+
+
 # Fusion Registry
 FUSION_REGISTRY: Dict[str, type] = {
     'concat': ConcatFusion,
     'gated_bilinear': BilinearGatedFusion,
+    'aux_only': AuxOnlyUniformFusion,
 }
 
 
@@ -207,10 +226,11 @@ class MultiModalFusionModel(nn.Module):
         hidden_dim: Common hidden dimension for fusion
         num_go_terms: Number of GO terms to predict
         dropout: Dropout rate
-        fusion_type: One of 'concat', 'gated_bilinear', 'multihead_attn'
+        fusion_type: One of 'concat', 'gated_bilinear', 'aux_only'
         modality_dropout: Dropout rate for non-sequence modalities during training
         protect_seq: If True, never drop sequence modality
         use_late_fusion: If True, enable auxiliary heads and hybrid gated fusion
+        late_output_mode: 'hybrid' or 'aux_only' when late fusion is enabled
     """
 
     MODALITY_NAMES = ['seq', 'text', 'struct', 'ppi']
@@ -228,6 +248,7 @@ class MultiModalFusionModel(nn.Module):
         modality_dropout: float = 0.0,
         protect_seq: bool = True,
         use_late_fusion: bool = False,
+        late_output_mode: str = 'hybrid',
         **kwargs
     ):
         super().__init__()
@@ -243,7 +264,15 @@ class MultiModalFusionModel(nn.Module):
         self.protect_seq = protect_seq
         self.n_modalities = len(self.MODALITY_NAMES)
         self.use_late_fusion = use_late_fusion
+        self.late_output_mode = late_output_mode
         self.num_go_terms = num_go_terms
+
+        if late_output_mode not in {'hybrid', 'aux_only'}:
+            raise ValueError(
+                f"late_output_mode must be one of ['hybrid', 'aux_only'], got '{late_output_mode}'"
+            )
+        if late_output_mode == 'aux_only' and not use_late_fusion:
+            raise ValueError("late_output_mode='aux_only' requires use_late_fusion=True")
 
         # Per-modality encoders
         self.encoders = nn.ModuleDict({
@@ -353,6 +382,16 @@ class MultiModalFusionModel(nn.Module):
         weights_expanded = fusion_weights.unsqueeze(-1)
         logits_late = (weights_expanded * aux_logits_tensor).sum(dim=1)
 
+        if self.late_output_mode == 'aux_only':
+            logits = logits_late
+            aux_outputs = {
+                'aux_logits': aux_logits,
+                'logits_early': logits_early,
+                'logits_late': logits_late,
+                'late_output_mode': 'aux_only',
+            }
+            return logits, fusion_weights, aux_outputs
+
         # Hybrid residual integration
         lam = torch.sigmoid(self.late_fusion_beta)
         logits = (1 - lam) * logits_early + lam * logits_late
@@ -362,6 +401,7 @@ class MultiModalFusionModel(nn.Module):
             'logits_early': logits_early,
             'logits_late': logits_late,
             'lambda': lam,
+            'late_output_mode': 'hybrid',
         }
 
         return logits, fusion_weights, aux_outputs
@@ -381,7 +421,7 @@ def create_model(fusion_type: str, **kwargs) -> nn.Module:
     """Factory function to create fusion model.
 
     Args:
-        fusion_type: Type of fusion ('concat', 'gated_bilinear', 'multihead_attn')
+        fusion_type: Type of fusion ('concat', 'gated_bilinear', 'aux_only')
         **kwargs: Model arguments (seq_dim, hidden_dim, num_go_terms, etc.)
 
     Returns:

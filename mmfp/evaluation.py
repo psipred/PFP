@@ -262,7 +262,8 @@ def evaluate_with_cafa(
     output_dir: str,
     model_type: str = 'fusion',
     model_name: str = 'model',
-    train_labels: Optional[np.ndarray] = None
+    train_labels: Optional[np.ndarray] = None,
+    ia_file: Optional[str] = None
 ) -> Dict[str, Any]:
     """Evaluate model predictions using CAFA evaluator.
 
@@ -277,6 +278,7 @@ def evaluate_with_cafa(
         model_type: Model type identifier
         model_name: Name for the prediction file
         train_labels: Training labels for IA computation [n_train, n_terms]
+        ia_file: Optional path to a precomputed IA file
 
     Returns:
         Dict with CAFA metrics
@@ -336,17 +338,19 @@ def evaluate_with_cafa(
     save_ground_truth_cafa_format(labels, protein_ids, go_terms, truth_file)
 
     # Compute and save IA if training labels provided
-    ia_file = None
-    if train_labels is not None:
+    computed_ia_file = ia_file
+    if computed_ia_file is None and train_labels is not None:
         print("Computing Information Accretion from training data...")
         try:
             ia_values = compute_information_accretion(train_labels, go_terms, obo_file)
-            ia_file = temp_dir / "ia.txt"
-            save_ia_file(ia_values, ia_file)
+            computed_ia_file = temp_dir / "ia.txt"
+            save_ia_file(ia_values, computed_ia_file)
             print(f"  IA computed for {len(ia_values)} terms")
         except Exception as e:
             print(f"  Warning: IA computation failed: {e}")
-            ia_file = None
+            computed_ia_file = None
+    elif computed_ia_file is not None:
+        print(f"Using precomputed IA file: {computed_ia_file}")
 
     # Run CAFA evaluator
     cafa_results_dir = output_dir / 'cafa_results'
@@ -355,7 +359,7 @@ def evaluate_with_cafa(
         pred_file=str(pred_dir),
         truth_file=str(truth_file),
         output_dir=str(cafa_results_dir),
-        ia_file=str(ia_file) if ia_file else None
+        ia_file=str(computed_ia_file) if computed_ia_file else None
     )
 
     metrics = {}
