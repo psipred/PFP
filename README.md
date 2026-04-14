@@ -31,8 +31,8 @@ pip install -r requirements.txt
 Download precomputed CAFA3 embeddings and data splits:
 
 ```bash
-# Download precomputed data (wait to be upload...)
-wget https://zenodo.org/record/XXXXXXX/files/mmfp_cafa3_data.tar.gz
+# Download precomputed data from Zenodo: https://zenodo.org/records/19498341
+wget https://zenodo.org/records/19498341/files/mmfp_cafa3_data.tar.gz
 
 # Extract to data directory
 tar -xzf mmfp_cafa3_data.tar.gz -C ./data
