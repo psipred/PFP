@@ -20,7 +20,7 @@ To prevent data leakage, test-set text embeddings use **historical UniProt recor
 
 ```bash
 git clone https://github.com/psipred/PFP.git
-cd PFP/MMFP
+cd PFP
 pip install -r requirements.txt
 ```
 
@@ -58,15 +58,15 @@ See `scripts/README.md` for detailed extraction instructions.
 
 | Paper Table | Description | Command |
 |------------|-------------|---------|
-| Table 1 | CAFA3 Comparison (Full Model) | `python scripts/reproduce_full_model.py` |
-| Table 2 | Modality Contribution | `python scripts/reproduce_modality_contribution.py` |
-| Table 3 | Ablation Study | `python scripts/run_ablation.py` |
-| Table 4 | Masking Evaluation | `python scripts/reproduce_masking_eval.py` |
+| Table 2 | CAFA3 Comparison (Full Model) | `python scripts/reproduce_full_model.py` |
+| Table 1 | Modality Contribution | `python scripts/reproduce_modality_contribution.py` |
+| Supplementary Tables 4–5 | Ablation Study | `python scripts/run_ablation.py` |
+| Supplementary Tables 6–7 | Masking Evaluation | `python scripts/reproduce_masking_eval.py` |
 
 ### Training from Scratch
 
 ```bash
-# Full model (Table 1)
+# Full model (Tables 1 and 2)
 python train.py \
   --seq-model prott5 \
   --fusion-types gated_bilinear \
@@ -80,7 +80,9 @@ python train.py \
 python scripts/reproduce_full_model.py
 ```
 
-### Expected Results (Table 1)
+### Expected Results (Tables 1 and 2)
+
+Fmax is the full model's row in Table 2; wFmax is the Full Model row of Table 1.
 
 | Aspect | Fmax | wFmax |
 |--------|------|-------|
@@ -91,16 +93,19 @@ python scripts/reproduce_full_model.py
 ## Project Structure
 
 ```
-MMFP/
+PFP/
+├── configs/
+│   └── default.yaml           # Default configuration
 ├── mmfp/
 │   ├── models.py              # Fusion models and architectures
 │   ├── dataset.py             # Dataset and data loading
 │   └── evaluation.py          # CAFA evaluation utilities
 ├── scripts/
-│   ├── reproduce_full_model.py          # Table 1 reproduction
-│   ├── reproduce_modality_contribution.py  # Table 2 reproduction
-│   ├── run_ablation.py                  # Table 3 reproduction
-│   ├── reproduce_masking_eval.py        # Table 4 reproduction
+│   ├── README.md                        # Detailed extraction and reproduction steps
+│   ├── reproduce_full_model.py          # Table 2 reproduction
+│   ├── reproduce_modality_contribution.py  # Table 1 reproduction
+│   ├── run_ablation.py                  # Supplementary Tables 4–5
+│   ├── reproduce_masking_eval.py        # Supplementary Tables 6–7
 │   ├── extract_uniprot_text.py          # Text extraction + temporal bundle
 │   ├── embed_uniprot_descriptions.py    # PubMedBERT embedding
 │   ├── extract_prott5_embeddings.py     # ProtT5 sequence embeddings
@@ -111,6 +116,7 @@ MMFP/
 │   └── prepare_cafa3_data.py           # CAFA3 benchmark splits
 ├── train.py                   # Main training script
 ├── requirements.txt
+├── LICENSE
 └── README.md
 ```
 

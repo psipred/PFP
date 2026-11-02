@@ -1,9 +1,9 @@
-"""Reproduce Table 2: Modality Contribution (retrain subsets).
+"""Reproduce Table 1: Modality Contribution (retrain subsets).
 
 For each variant (seq_only, seq_text, seq_struct, seq_ppi):
 1. Train gated_bilinear with appropriate modalities disabled via empty dirs
 2. Run CAFA evaluation with IA weights
-3. Output summary CSV matching Table 2
+3. Output summary CSV matching Table 1
 """
 
 from __future__ import annotations

@@ -1,9 +1,9 @@
-"""Reproduce Table 4: Masking Evaluation.
+"""Reproduce Supplementary Tables 6-7: Masking Evaluation.
 
 For both full (hybrid) and bilinear checkpoints:
 1. Load trained checkpoint
 2. For each single modality (seq, text, struct, ppi): evaluate with other modalities masked
-3. Output summary matching Table 4
+3. Output summary matching Supplementary Tables 6-7
 """
 
 from __future__ import annotations

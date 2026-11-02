@@ -6,14 +6,14 @@ This directory contains scripts to rebuild MMFP inputs and reproduce all paper r
 
 | Paper Table | Script | Description |
 |------------|--------|-------------|
-| Table 1 | `reproduce_full_model.py` | Full model train + eval with temporal text embeddings |
-| Table 2 | `reproduce_modality_contribution.py` | Retrain with modality subsets (seq_only, seq_text, seq_struct, seq_ppi) |
-| Table 3 | `run_ablation.py` | Ablation over fusion variants (hybrid, concat, bilinear, aux_only) |
-| Table 4 | `reproduce_masking_eval.py` | Single-modality masking evaluation using trained checkpoints |
+| Table 2 | `reproduce_full_model.py` | Full model train + eval with temporal text embeddings |
+| Table 1 | `reproduce_modality_contribution.py` | Retrain with modality subsets (seq_only, seq_text, seq_struct, seq_ppi) |
+| Supplementary Tables 4–5 | `run_ablation.py` | Ablation over fusion variants (hybrid, concat, bilinear, aux_only) |
+| Supplementary Tables 6–7 | `reproduce_masking_eval.py` | Single-modality masking evaluation using trained checkpoints |
 
 ## Core Reproduction Paths
 
-### 1. Full Model (Table 1)
+### 1. Full Model (Table 2)
 
 Prepare the canonical mixed text bundle:
 
@@ -47,7 +47,7 @@ Verify against the kept target metrics:
 python scripts/reproduce_full_model.py
 ```
 
-### 2. Modality Contribution (Table 2)
+### 2. Modality Contribution (Table 1)
 
 ```bash
 python scripts/reproduce_modality_contribution.py
@@ -55,7 +55,7 @@ python scripts/reproduce_modality_contribution.py
 
 Retrains 4 variants: seq_only, seq_text, seq_struct, seq_ppi. Results in `results/modality_contribution/`.
 
-### 3. Ablation Study (Table 3)
+### 3. Ablation Study (Supplementary Tables 4–5)
 
 ```bash
 python scripts/run_ablation.py
@@ -63,7 +63,7 @@ python scripts/run_ablation.py
 
 Retrains fusion variants: hybrid_gated, concat_only, concat_plus_aux, bilinear_gated, aux_only. Results in `results/ablation/`.
 
-### 4. Masking Evaluation (Table 4)
+### 4. Masking Evaluation (Supplementary Tables 6–7)
 
 ```bash
 python scripts/reproduce_masking_eval.py
@@ -86,8 +86,21 @@ Uses full model checkpoints, evaluates with single modalities masked. Results in
 
 ### Python Packages
 ```bash
-pip install torch transformers numpy tqdm requests h5py fair-esm
+pip install torch transformers numpy tqdm requests h5py
 ```
+
+### ESM-IF1 (structure embeddings only)
+
+`extract_esm_if1_embeddings.py` also needs fair-esm and its inverse-folding dependencies. They are not in `requirements.txt` because the biotite versions fair-esm can use need numpy < 2, so a separate environment may be easier:
+
+```bash
+pip install "fair-esm @ git+https://github.com/facebookresearch/esm.git@2b369911bb5b4b0dda914521b9475cad1656b2ac" \
+    torch-geometric "biotite<1.0" "numpy<2"
+```
+
+- **fair-esm:** this commit (version 2.0.1, the last on the archived repository) is what ESM's inverse-folding instructions install. The PyPI release (2.0.0) works with the script too, but it imports `torch-scatter` as well, which must be built for your PyTorch and CUDA versions.
+- **biotite < 1.0:** fair-esm imports `filter_backbone` and `PDBxFile`, which biotite 1.0 removed. Earlier biotite releases do not work with numpy 2.
+- **Tested** with Python 3.9, PyTorch 2.8.0 (CUDA 12.8), fair-esm 2.0.0, biotite 0.38.0, torch-geometric 2.6.1 and numpy 1.26.4.
 
 ### External Resources
 

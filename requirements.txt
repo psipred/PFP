@@ -13,6 +13,8 @@ networkx>=2.6.0
 # Embedding extraction (optional)
 transformers>=4.20.0
 sentencepiece>=0.1.96
+# ESM-IF1 structure embeddings also need fair-esm, torch-geometric and
+# biotite<1.0 (which needs numpy<2); see scripts/README.md.
 
 # Utilities
 scikit-learn>=1.0.0

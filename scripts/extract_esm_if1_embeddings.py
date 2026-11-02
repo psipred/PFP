@@ -51,7 +51,7 @@ def extract_embeddings(
         import esm.inverse_folding
     except ImportError as e:
         print("ERROR: Could not import `esm` (fair-esm).")
-        print("  Try: pip install fair-esm")
+        print("  See the ESM-IF1 install notes in scripts/README.md")
         print(f"  Original error: {e}")
         return
 
@@ -106,10 +106,16 @@ def extract_embeddings(
                 if coords is None or len(coords) == 0:
                     raise ValueError("No backbone coordinates found")
 
-                # Get encoder output (L x 512)
-                rep = esm.inverse_folding.util.get_encoder_output(
-                    model, alphabet, coords
+                # Get encoder output (L x 512). Inputs are built on `device` because
+                # get_encoder_output in fair-esm 2.0.0 (PyPI) puts them on the CPU.
+                converter = esm.inverse_folding.util.CoordBatchConverter(alphabet)
+                batch_coords, confidence, _, _, padding_mask = converter(
+                    [(coords, None, None)], device=device
                 )
+                encoder_out = model.encoder.forward(
+                    batch_coords, padding_mask, confidence, return_all_hiddens=False
+                )
+                rep = encoder_out["encoder_out"][0][1:-1, 0]
 
                 # Pool to protein-level embedding
                 if pooling == "mean":
